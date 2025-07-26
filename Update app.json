@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "FiftyListApp",
+    "slug": "fifty-list-app", 
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "com.yourname.fiftylistapp",
+      "buildNumber": "1"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
