@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chrisgunn.fiftylist",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "This app may access your camera for features provided by third-party libraries. The camera is not used unless you choose a feature that requires it."
+      }
     },
     "web": {
       "bundler": "metro",
