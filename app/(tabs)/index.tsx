@@ -14,6 +14,7 @@ import ImportModal from '@/components/ImportModal';
 import SearchBar from '@/components/SearchBar';
 import YearFolderSelector from '../../components/YearFolderSelector';
 import WelcomeTour from '@/components/WelcomeTour';
+import ActivitySharingModal from '@/components/ActivitySharingModal';
 
 export default function BooksScreen() {
   const { 
@@ -38,6 +39,9 @@ export default function BooksScreen() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [tempGoal, setTempGoal] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showSharingModal, setShowSharingModal] = useState(false);
 
   const currentYear = new Date().getFullYear();
   
@@ -75,13 +79,25 @@ export default function BooksScreen() {
     return completionYear === currentYear;
   }).length;
 
-  const tabs = [
-    { key: 'completed', label: 'Done', icon: BookOpen, count: books.completed.length },
-    { key: 'inProgress', label: 'Reading', icon: Clock, count: books.inProgress.length },
-    { key: 'planned', label: 'Planned', icon: Target, count: books.planned.length },
-    { key: 'fails', label: 'Stopped', icon: X, count: books.fails.length },
-    { key: 'allTime', label: 'All Time', icon: Star, count: books.allTime.length },
-  ];
+  // Dynamic tabs that respect the year filter
+  const tabs = useMemo(() => {
+    // Calculate completed count based on year filter
+    let completedCount = books.completed.length;
+    if (selectedYear !== 'all') {
+      completedCount = books.completed.filter(book => {
+        const completionYear = getCompletionYear(book);
+        return completionYear === selectedYear;
+      }).length;
+    }
+
+    return [
+      { key: 'completed', label: 'Done', icon: BookOpen, count: completedCount },
+      { key: 'inProgress', label: 'Reading', icon: Clock, count: books.inProgress.length },
+      { key: 'planned', label: 'Planned', icon: Target, count: books.planned.length },
+      { key: 'fails', label: 'Stopped', icon: X, count: books.fails.length },
+      { key: 'allTime', label: 'All Time', icon: Star, count: books.allTime.length },
+    ];
+  }, [books, selectedYear]);
 
   // Get available years from completed books based on completion date
   const availableYears = useMemo(() => {
@@ -129,11 +145,11 @@ export default function BooksScreen() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       workingSet = workingSet.filter(book => 
-        book.title.toLowerCase().includes(query) ||
-        book.author.toLowerCase().includes(query) ||
+        (book.title && book.title.toLowerCase().includes(query)) ||
+        (book.author && book.author.toLowerCase().includes(query)) ||
         (book.notes && book.notes.toLowerCase().includes(query)) ||
         (book.source && book.source.toLowerCase().includes(query)) ||
-        book.year.toString().includes(query)
+        (book.publicationYear && book.publicationYear.toString().includes(query))
       );
       console.log(`📚 Search filtered "${query}": ${workingSet.length} books`);
     }
@@ -203,16 +219,128 @@ export default function BooksScreen() {
   };
 
   const handleExport = async () => {
+    console.log('📤 Export button pressed');
+    console.log('📤 Platform:', Platform.OS);
+    console.log('📤 Share API available:', !!Share.share);
+    
+    setIsExporting(true);
+    
     try {
+      console.log('📤 Generating export text...');
       const exportText = generateComprehensiveExport();
+      console.log('📤 Export text generated, length:', exportText.length);
       
-      await Share.share({
-        message: exportText,
-        title: 'My Complete Reading & Watching List',
-      });
+      if (exportText.length === 0) {
+        Alert.alert(
+          'No Data to Export',
+          'You don\'t have any books or movies in your lists yet. Add some items first, then try exporting again.',
+          [{ text: 'OK' }]
+        );
+        setIsExporting(false);
+        return;
+      }
+      
+      // Platform-aware export handling
+      if (Platform.OS === 'web') {
+        console.log('📤 Using web export method');
+        // For web, create a downloadable file
+        const blob = new Blob([exportText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `fiftylist-export-${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        console.log('📤 Web export completed');
+        
+        Alert.alert(
+          'Export Successful!',
+          'Your reading list has been downloaded as a text file.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        console.log('📤 Using mobile export method');
+        // For mobile, show export data in alert first, then try to share
+        Alert.alert(
+          'Export Ready',
+          'Your data has been prepared for export. Would you like to share it now?',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => {
+                console.log('📤 Export cancelled by user');
+              }
+            },
+            {
+              text: 'Share',
+              onPress: async () => {
+                try {
+                  console.log('📤 Attempting to share export data...');
+                  if (Share.share) {
+                    const result = await Share.share({
+                      message: exportText,
+                      title: 'My Complete Reading & Watching List',
+                    });
+                    
+                    console.log('📤 Share result:', result);
+                    
+                    if (result.action === Share.sharedAction) {
+                      console.log('📤 Mobile share completed successfully');
+                      Alert.alert(
+                        'Export Successful!', 
+                        'Your reading list has been shared successfully.',
+                        [{ text: 'OK' }]
+                      );
+                    } else if (result.action === Share.dismissedAction) {
+                      console.log('📤 Share was dismissed by user');
+                      Alert.alert(
+                        'Export Cancelled', 
+                        'The share was cancelled. You can try again anytime.',
+                        [{ text: 'OK' }]
+                      );
+                    } else {
+                      console.log('📤 Share action unknown:', result.action);
+                      Alert.alert(
+                        'Export Status Unknown', 
+                        'The export may have been completed. Check your share options.',
+                        [{ text: 'OK' }]
+                      );
+                    }
+                  } else {
+                    console.log('📤 Share API not available');
+                    Alert.alert(
+                      'Share Not Available',
+                      'Sharing is not available on this device. Your export data has been prepared.',
+                      [{ text: 'OK' }]
+                    );
+                  }
+                } catch (shareError) {
+                  console.error('❌ Share error:', shareError);
+                  Alert.alert(
+                    'Share Error',
+                    'Failed to share export data. Your data has been prepared.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+            }
+          ]
+        );
+      }
     } catch (error) {
-      console.error('Error sharing:', error);
-      Alert.alert('Export Error', 'Failed to export data. Please try again.');
+      console.error('❌ Error in handleExport:', error);
+      
+      // Enhanced error handling with platform-specific messages
+      const errorMessage = Platform.OS === 'web' 
+        ? 'Failed to download export file. Please try again.'
+        : 'Failed to export data. Please try again.';
+        
+      Alert.alert('Export Error', errorMessage);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -281,34 +409,45 @@ export default function BooksScreen() {
   );
 
   const renderItem = ({ item, index }: { item: any; index: number }) => {
-    if (canReorder) {
-      return (
-        <DraggableItemCard
-          item={item}
-          index={index}
-          onEdit={() => handleEditBook(item)}
-          onDelete={() => handleDeleteBook(item.id)}
-          onDragEnd={handleReorderBook}
-          isBook={true}
-          primaryColor="#D97706"
-          isDark={false}
-          backgroundColor="#EDE8D0"
-          canReorder={true}
-        />
-      );
-    } else {
-      return (
-        <ItemCard
-          item={item}
-          index={index}
-          onEdit={() => handleEditBook(item)}
-          onDelete={() => handleDeleteBook(item.id)}
-          isBook={true}
-          primaryColor="#D97706"
-          isDark={false}
-          backgroundColor="#EDE8D0"
-        />
-      );
+    // Add safety checks to prevent crashes
+    if (!item || !item.id || !item.title || !item.author) {
+      console.warn('⚠️ Invalid item in renderItem:', item);
+      return null;
+    }
+
+    try {
+      if (canReorder) {
+        return (
+          <DraggableItemCard
+            item={item}
+            index={index}
+            onEdit={() => handleEditBook(item)}
+            onDelete={() => handleDeleteBook(item.id)}
+            onDragEnd={handleReorderBook}
+            isBook={true}
+            primaryColor="#D97706"
+            isDark={false}
+            backgroundColor="#EDE8D0"
+            canReorder={true}
+          />
+        );
+      } else {
+        return (
+          <ItemCard
+            item={item}
+            index={index}
+            onEdit={() => handleEditBook(item)}
+            onDelete={() => handleDeleteBook(item.id)}
+            isBook={true}
+            primaryColor="#D97706"
+            isDark={false}
+            backgroundColor="#EDE8D0"
+          />
+        );
+      }
+    } catch (error) {
+      console.error('❌ Error rendering item:', error, item);
+      return null;
     }
   };
 
@@ -324,10 +463,13 @@ export default function BooksScreen() {
         onAddPress={handleAddBook}
         onExportPress={handleExport}
         onImportPress={() => setShowImportModal(true)}
+        onSearchPress={() => setShowSearch(!showSearch)}
+        onSharePress={() => setShowSharingModal(true)}
         primaryColor="#D97706"
         secondaryColor="#B45309"
         isDark={false}
         backgroundColor="#D6B588"
+        isExporting={isExporting}
       />
       
       {/* Year Folder Selector - only show for completed books */}
@@ -365,8 +507,8 @@ export default function BooksScreen() {
         backgroundColor="#EDE8D0"
       />
 
-      {/* Search Bar - Hide for planned tab unless there are multiple items */}
-      {(activeTab !== 'planned' || books.planned.length > 1) && (
+      {/* Search Bar - Show only when search is activated */}
+      {showSearch && (
         <SearchBar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -378,7 +520,7 @@ export default function BooksScreen() {
 
       <FlatList
         data={filteredBooks}
-        keyExtractor={(item) => `book-${item.id}`}
+        keyExtractor={(item) => `book-${item?.id || Math.random()}`}
         renderItem={renderItem}
         ListHeaderComponent={renderListHeader}
         ListEmptyComponent={renderEmptyState}
@@ -389,6 +531,13 @@ export default function BooksScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         extraData={`${forceUpdate}-${activeTab}-${filteredBooks.length}-${books.planned.length}`}
+        removeClippedSubviews={Platform.OS !== 'web'}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        initialNumToRender={10}
+        onError={(error) => {
+          console.error('❌ FlatList error:', error);
+        }}
       />
 
       <AddEditModal
@@ -405,6 +554,14 @@ export default function BooksScreen() {
         visible={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImport}
+        isDark={false}
+      />
+
+      {/* Activity Sharing Modal */}
+      <ActivitySharingModal
+        visible={showSharingModal}
+        onClose={() => setShowSharingModal(false)}
+        primaryColor="#D97706"
         isDark={false}
       />
 
@@ -471,10 +628,10 @@ const styles = StyleSheet.create({
     maxHeight: '100vh',
   },
   listContent: {
-    paddingBottom: 5,
+    paddingBottom: 0,
   },
   webListContent: {
-    paddingBottom: 20,
+    paddingBottom: 0,
     minHeight: '100%',
   },
   reorderHint: {

@@ -12,6 +12,7 @@ import AddEditModal from '@/components/AddEditModal';
 import ImportModal from '@/components/ImportModal';
 import SearchBar from '@/components/SearchBar';
 import YearFolderSelector from '../../components/YearFolderSelector';
+import ActivitySharingModal from '@/components/ActivitySharingModal';
 
 export default function MoviesScreen() {
   const { 
@@ -35,6 +36,9 @@ export default function MoviesScreen() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [tempGoal, setTempGoal] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [showSharingModal, setShowSharingModal] = useState(false);
 
   const currentYear = new Date().getFullYear();
   
@@ -72,13 +76,25 @@ export default function MoviesScreen() {
     return completionYear === currentYear;
   }).length;
 
-  const tabs = [
-    { key: 'completed', label: 'Done', icon: Film, count: movies.completed.length },
-    { key: 'inProgress', label: 'Watching', icon: Clock, count: movies.inProgress.length },
-    { key: 'planned', label: 'Planned', icon: Target, count: movies.planned.length },
-    { key: 'fails', label: 'Stopped', icon: X, count: movies.fails.length },
-    { key: 'allTime', label: 'All Time', icon: Star, count: movies.allTime.length },
-  ];
+  // Dynamic tabs that respect the year filter
+  const tabs = useMemo(() => {
+    // Calculate completed count based on year filter
+    let completedCount = movies.completed.length;
+    if (selectedYear !== 'all') {
+      completedCount = movies.completed.filter(movie => {
+        const completionYear = getCompletionYear(movie);
+        return completionYear === selectedYear;
+      }).length;
+    }
+
+    return [
+      { key: 'completed', label: 'Done', icon: Film, count: completedCount },
+      { key: 'inProgress', label: 'Watching', icon: Clock, count: movies.inProgress.length },
+      { key: 'planned', label: 'Planned', icon: Target, count: movies.planned.length },
+      { key: 'fails', label: 'Stopped', icon: X, count: movies.fails.length },
+      { key: 'allTime', label: 'All Time', icon: Star, count: movies.allTime.length },
+    ];
+  }, [movies, selectedYear]);
 
   // Get available years from completed movies based on completion date
   const availableYears = useMemo(() => {
@@ -118,11 +134,11 @@ export default function MoviesScreen() {
 
     const query = searchQuery.toLowerCase().trim();
     const filtered = currentMovies.filter(movie => 
-      movie.title.toLowerCase().includes(query) ||
-      movie.author.toLowerCase().includes(query) ||
+      (movie.title && movie.title.toLowerCase().includes(query)) ||
+      (movie.author && movie.author.toLowerCase().includes(query)) ||
       (movie.notes && movie.notes.toLowerCase().includes(query)) ||
       (movie.source && movie.source.toLowerCase().includes(query)) ||
-      movie.year.toString().includes(query)
+      (movie.publicationYear && movie.publicationYear.toString().includes(query))
     );
     
     console.log(`🎬 Search filtered ${currentMovies.length} -> ${filtered.length} movies`);
@@ -190,16 +206,128 @@ export default function MoviesScreen() {
   };
 
   const handleExport = async () => {
+    console.log('📤 Export button pressed');
+    console.log('📤 Platform:', Platform.OS);
+    console.log('📤 Share API available:', !!Share.share);
+    
+    setIsExporting(true);
+    
     try {
+      console.log('📤 Generating export text...');
       const exportText = generateComprehensiveExport();
+      console.log('📤 Export text generated, length:', exportText.length);
       
-      await Share.share({
-        message: exportText,
-        title: 'My Complete Reading & Watching List',
-      });
+      if (exportText.length === 0) {
+        Alert.alert(
+          'No Data to Export',
+          'You don\'t have any books or movies in your lists yet. Add some items first, then try exporting again.',
+          [{ text: 'OK' }]
+        );
+        setIsExporting(false);
+        return;
+      }
+      
+      // Platform-aware export handling
+      if (Platform.OS === 'web') {
+        console.log('📤 Using web export method');
+        // For web, create a downloadable file
+        const blob = new Blob([exportText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `fiftylist-export-${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        console.log('📤 Web export completed');
+        
+        Alert.alert(
+          'Export Successful!',
+          'Your reading list has been downloaded as a text file.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        console.log('📤 Using mobile export method');
+        // For mobile, show export data in alert first, then try to share
+        Alert.alert(
+          'Export Ready',
+          'Your data has been prepared for export. Would you like to share it now?',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => {
+                console.log('📤 Export cancelled by user');
+              }
+            },
+            {
+              text: 'Share',
+              onPress: async () => {
+                try {
+                  console.log('📤 Attempting to share export data...');
+                  if (Share.share) {
+                    const result = await Share.share({
+                      message: exportText,
+                      title: 'My Complete Reading & Watching List',
+                    });
+                    
+                    console.log('📤 Share result:', result);
+                    
+                    if (result.action === Share.sharedAction) {
+                      console.log('📤 Mobile share completed successfully');
+                      Alert.alert(
+                        'Export Successful!', 
+                        'Your reading list has been shared successfully.',
+                        [{ text: 'OK' }]
+                      );
+                    } else if (result.action === Share.dismissedAction) {
+                      console.log('📤 Share was dismissed by user');
+                      Alert.alert(
+                        'Export Cancelled', 
+                        'The share was cancelled. You can try again anytime.',
+                        [{ text: 'OK' }]
+                      );
+                    } else {
+                      console.log('📤 Share action unknown:', result.action);
+                      Alert.alert(
+                        'Export Status Unknown', 
+                        'The export may have been completed. Check your share options.',
+                        [{ text: 'OK' }]
+                      );
+                    }
+                  } else {
+                    console.log('📤 Share API not available');
+                    Alert.alert(
+                      'Share Not Available',
+                      'Sharing is not available on this device. Your export data has been prepared.',
+                      [{ text: 'OK' }]
+                    );
+                  }
+                } catch (shareError) {
+                  console.error('❌ Share error:', shareError);
+                  Alert.alert(
+                    'Share Error',
+                    'Failed to share export data. Your data has been prepared.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+            }
+          ]
+        );
+      }
     } catch (error) {
-      console.error('Error sharing:', error);
-      Alert.alert('Export Error', 'Failed to export data. Please try again.');
+      console.error('❌ Error in handleExport:', error);
+      
+      // Enhanced error handling with platform-specific messages
+      const errorMessage = Platform.OS === 'web' 
+        ? 'Failed to download export file. Please try again.'
+        : 'Failed to export data. Please try again.';
+        
+      Alert.alert('Export Error', errorMessage);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -268,34 +396,45 @@ export default function MoviesScreen() {
   );
 
   const renderItem = ({ item, index }: { item: any; index: number }) => {
-    if (canReorder) {
-      return (
-        <DraggableItemCard
-          item={item}
-          index={index}
-          onEdit={() => handleEditMovie(item)}
-          onDelete={() => handleDeleteMovie(item.id)}
-          onDragEnd={handleReorderMovie}
-          isBook={false}
-          primaryColor="#3B82F6"
-          isDark={true}
-          backgroundColor="#111827"
-          canReorder={true}
-        />
-      );
-    } else {
-      return (
-        <ItemCard
-          item={item}
-          index={index}
-          onEdit={() => handleEditMovie(item)}
-          onDelete={() => handleDeleteMovie(item.id)}
-          isBook={false}
-          primaryColor="#3B82F6"
-          isDark={true}
-          backgroundColor="#111827"
-        />
-      );
+    // Add safety checks to prevent crashes
+    if (!item || !item.id || !item.title || !item.author) {
+      console.warn('⚠️ Invalid item in renderItem:', item);
+      return null;
+    }
+
+    try {
+      if (canReorder) {
+        return (
+          <DraggableItemCard
+            item={item}
+            index={index}
+            onEdit={() => handleEditMovie(item)}
+            onDelete={() => handleDeleteMovie(item.id)}
+            onDragEnd={handleReorderMovie}
+            isBook={false}
+            primaryColor="#3B82F6"
+            isDark={true}
+            backgroundColor="#111827"
+            canReorder={true}
+          />
+        );
+      } else {
+        return (
+          <ItemCard
+            item={item}
+            index={index}
+            onEdit={() => handleEditMovie(item)}
+            onDelete={() => handleDeleteMovie(item.id)}
+            isBook={false}
+            primaryColor="#3B82F6"
+            isDark={true}
+            backgroundColor="#111827"
+          />
+        );
+      }
+    } catch (error) {
+      console.error('❌ Error rendering item:', error, item);
+      return null;
     }
   };
 
@@ -306,10 +445,13 @@ export default function MoviesScreen() {
         onAddPress={handleAddMovie}
         onExportPress={handleExport}
         onImportPress={() => setShowImportModal(true)}
+        onSearchPress={() => setShowSearch(!showSearch)}
+        onSharePress={() => setShowSharingModal(true)}
         primaryColor="#3B82F6"
         secondaryColor="#2563EB"
         isDark={true}
         backgroundColor="#111827"
+        isExporting={isExporting}
       />
       
       {/* Year Folder Selector - only show for completed movies */}
@@ -347,18 +489,20 @@ export default function MoviesScreen() {
         backgroundColor="#111827"
       />
 
-      {/* Search Bar - Always visible */}
-      <SearchBar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        placeholder={getSearchPlaceholder()}
-        isDark={true}
-        backgroundColor="#111827"
-      />
+      {/* Search Bar - Show only when search is activated */}
+      {showSearch && (
+        <SearchBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          placeholder={getSearchPlaceholder()}
+          isDark={true}
+          backgroundColor="#111827"
+        />
+      )}
 
       <FlatList
         data={filteredMovies}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => `movie-${item?.id || Math.random()}`}
         renderItem={renderItem}
         ListHeaderComponent={renderListHeader}
         ListEmptyComponent={renderEmptyState}
@@ -369,6 +513,13 @@ export default function MoviesScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         extraData={forceUpdate} // Force re-render when this changes
+        removeClippedSubviews={Platform.OS !== 'web'}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        initialNumToRender={10}
+        onError={(error) => {
+          console.error('❌ FlatList error:', error);
+        }}
       />
 
       <AddEditModal
@@ -385,6 +536,14 @@ export default function MoviesScreen() {
         visible={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImport}
+        isDark={true}
+      />
+
+      {/* Activity Sharing Modal */}
+      <ActivitySharingModal
+        visible={showSharingModal}
+        onClose={() => setShowSharingModal(false)}
+        primaryColor="#3B82F6"
         isDark={true}
       />
 
@@ -445,10 +604,10 @@ const styles = StyleSheet.create({
     maxHeight: '100vh',
   },
   listContent: {
-    paddingBottom: 5,
+    paddingBottom: 0,
   },
   webListContent: {
-    paddingBottom: 20,
+    paddingBottom: 0,
     minHeight: '100%',
   },
   reorderHint: {

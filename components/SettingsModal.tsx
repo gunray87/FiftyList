@@ -23,17 +23,26 @@ import {
   Star,
   Shield,
   RotateCcw,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Share2
 } from 'lucide-react-native';
 import { useFirstLaunch } from '@/hooks/useFirstLaunch';
+import { useUserInterests } from '@/hooks/useUserInterests';
+import { useSubscription } from '@/hooks/useSubscription';
+import SubscriptionStatusCard from './SubscriptionStatusCard';
+import UpgradeModal from './UpgradeModal';
+import { useOnboarding } from '@/hooks/OnboardingContext';
 import AppSettingsModal from './AppSettingsModal';
+import DismissedSuggestionsModal from './DismissedSuggestionsModal';
 
 interface SettingsModalProps {
   visible: boolean;
   onClose: () => void;
   onExportPress: () => void;
   onImportPress: () => void;
+  onSharePress?: () => void;
   isDark?: boolean;
+  isExporting?: boolean;
 }
 
 export default function SettingsModal({
@@ -41,11 +50,18 @@ export default function SettingsModal({
   onClose,
   onExportPress,
   onImportPress,
+  onSharePress,
   isDark = false,
+  isExporting = false,
 }: SettingsModalProps) {
   const [showAbout, setShowAbout] = useState(false);
   const [showAppSettings, setShowAppSettings] = useState(false);
+  const [showDismissedSuggestions, setShowDismissedSuggestions] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const { resetFirstLaunch } = useFirstLaunch();
+  const { resetInterests } = useUserInterests();
+  const { retakeOnboarding } = useOnboarding();
+  const { subscription, features, upgradeToPremium, startFreeTrial } = useSubscription();
 
   const handleContactPress = () => {
     const email = 'support@fiftylist.app';
@@ -129,10 +145,16 @@ export default function SettingsModal({
     setShowAppSettings(false);
   };
 
+  const handleDismissedSuggestionsClose = () => {
+    setShowDismissedSuggestions(false);
+  };
+
   const handleMainModalClose = () => {
     // Close any sub-modals first
     setShowAbout(false);
     setShowAppSettings(false);
+    setShowDismissedSuggestions(false);
+    setShowUpgradeModal(false);
     // Then close the main modal
     onClose();
   };
@@ -143,7 +165,8 @@ export default function SettingsModal({
     subtitle, 
     onPress, 
     showArrow = true,
-    iconColor = isDark ? '#9CA3AF' : '#6B7280'
+    iconColor = isDark ? '#9CA3AF' : '#6B7280',
+    disabled = false
   }: {
     icon: React.ComponentType<any>;
     title: string;
@@ -151,11 +174,17 @@ export default function SettingsModal({
     onPress: () => void;
     showArrow?: boolean;
     iconColor?: string;
+    disabled?: boolean;
   }) => (
     <TouchableOpacity 
-      style={[styles.settingItem, isDark && styles.darkSettingItem]}
+      style={[
+        styles.settingItem, 
+        isDark && styles.darkSettingItem,
+        disabled && styles.disabledSettingItem
+      ]}
       onPress={onPress}
-      activeOpacity={0.7}
+      activeOpacity={disabled ? 1 : 0.7}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityHint={subtitle}
@@ -191,7 +220,7 @@ export default function SettingsModal({
     <>
       {/* Main Settings Modal */}
       <Modal
-        visible={visible && !showAppSettings && !showAbout}
+        visible={visible && !showAppSettings && !showAbout && !showDismissedSuggestions && !showUpgradeModal}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={handleMainModalClose}
@@ -208,6 +237,18 @@ export default function SettingsModal({
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {/* Subscription Section */}
+            <SectionHeader title="Subscription" />
+            <SubscriptionStatusCard
+              subscription={subscription}
+              features={features}
+              onUpgradePress={() => {
+                console.log('⚙️ Opening upgrade modal from Settings');
+                setShowUpgradeModal(true);
+              }}
+              isDark={isDark}
+            />
+
             {/* App Settings Section */}
             <SectionHeader title="App Settings" />
             <View style={[styles.section, isDark && styles.darkSection]}>
@@ -218,6 +259,14 @@ export default function SettingsModal({
                 onPress={handleAppSettingsPress}
                 iconColor="#8B5CF6"
               />
+              <View style={[styles.separator, isDark && styles.darkSeparator]} />
+              <SettingItem
+                icon={Info}
+                title="Dismissed Suggestions"
+                subtitle="Manage your dismissed recommendations"
+                onPress={() => setShowDismissedSuggestions(true)}
+                iconColor="#8B5CF6"
+              />
             </View>
 
             {/* Data Management Section */}
@@ -225,13 +274,17 @@ export default function SettingsModal({
             <View style={[styles.section, isDark && styles.darkSection]}>
               <SettingItem
                 icon={Download}
-                title="Export Data"
-                subtitle="Share or backup your complete list"
+                title={isExporting ? "Exporting..." : "Export Data"}
+                subtitle={isExporting ? "Preparing your data..." : "Share or backup your complete list"}
                 onPress={() => {
-                  onExportPress();
-                  handleMainModalClose();
+                  if (!isExporting) {
+                    onExportPress();
+                    // Close modal immediately since export will show its own alert
+                    handleMainModalClose();
+                  }
                 }}
                 iconColor="#10B981"
+                disabled={isExporting}
               />
               <View style={[styles.separator, isDark && styles.darkSeparator]} />
               <SettingItem
@@ -244,6 +297,17 @@ export default function SettingsModal({
                 }}
                 iconColor="#3B82F6"
               />
+              <View style={[styles.separator, isDark && styles.darkSeparator]} />
+              <SettingItem
+                icon={Share2}
+                title="Share Activity"
+                subtitle="Share your reading and watching progress"
+                onPress={() => {
+                  onSharePress?.();
+                  handleMainModalClose();
+                }}
+                iconColor="#8B5CF6"
+              />
             </View>
 
             {/* Help Section */}
@@ -255,6 +319,18 @@ export default function SettingsModal({
                 subtitle="Learn about FiftyList features"
                 onPress={handleShowTour}
                 iconColor="#8B5CF6"
+              />
+              <View style={[styles.separator, isDark && styles.darkSeparator]} />
+              <SettingItem
+                icon={Heart}
+                title="Retake Interest Survey"
+                subtitle="Update your reading and watching preferences"
+                onPress={() => {
+                  resetInterests();
+                  retakeOnboarding();
+                  handleMainModalClose();
+                }}
+                iconColor="#F59E0B"
               />
             </View>
 
@@ -325,7 +401,7 @@ export default function SettingsModal({
 
       {/* About Modal */}
       <Modal
-        visible={visible && showAbout && !showAppSettings}
+        visible={visible && showAbout && !showAppSettings && !showDismissedSuggestions}
         animationType="fade"
         transparent
         onRequestClose={() => setShowAbout(false)}
@@ -383,8 +459,40 @@ export default function SettingsModal({
 
       {/* App Settings Modal - Now properly integrated */}
       <AppSettingsModal
-        visible={visible && showAppSettings && !showAbout}
+        visible={visible && showAppSettings && !showAbout && !showDismissedSuggestions}
         onClose={handleAppSettingsClose}
+        isDark={isDark}
+      />
+
+      {/* Dismissed Suggestions Modal */}
+      <DismissedSuggestionsModal
+        visible={visible && showDismissedSuggestions && !showAbout && !showAppSettings}
+        onClose={handleDismissedSuggestionsClose}
+        isDark={isDark}
+      />
+
+      {/* Upgrade Modal */}
+      <UpgradeModal
+        visible={showUpgradeModal}
+        onClose={() => {
+          console.log('❌ Closing upgrade modal');
+          setShowUpgradeModal(false);
+        }}
+        onSelectPlan={async (plan) => {
+          try {
+            console.log(`💳 User selected ${plan} plan`);
+            if (plan === 'yearly') {
+              await upgradeToPremium();
+            } else {
+              await upgradeToPremium(); // For now, both use the same function
+            }
+            setShowUpgradeModal(false);
+            console.log('✅ Upgrade completed successfully');
+          } catch (error) {
+            console.error('❌ Upgrade failed:', error);
+            // In a real app, you'd show an error message
+          }
+        }}
         isDark={isDark}
       />
     </>
@@ -458,6 +566,9 @@ const styles = StyleSheet.create({
   },
   darkSettingItem: {
     backgroundColor: '#1F2937',
+  },
+  disabledSettingItem: {
+    opacity: 0.5,
   },
   settingItemLeft: {
     flexDirection: 'row',

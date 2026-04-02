@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { BookOpen, Film, TrendingUp, Sparkles } from 'lucide-react-native';
+import { BookOpen, Film, TrendingUp, Lightbulb } from 'lucide-react-native';
 import { View, StyleSheet, Platform } from 'react-native';
 import ViewportFix from '@/components/ViewportFix';
 
@@ -47,7 +47,7 @@ export default function TabLayout() {
             title: 'Suggestions',
             tabBarIcon: ({ size, color }) => (
               <View style={styles.iconContainer}>
-                <Sparkles size={size} color={color} />
+                <Lightbulb size={size} color={color} />
               </View>
             ),
           }}

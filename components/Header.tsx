@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
-import { Plus, Settings } from 'lucide-react-native';
+import { Plus, Settings, Search } from 'lucide-react-native';
 import SettingsModal from './SettingsModal';
 
 interface HeaderProps {
@@ -8,13 +8,16 @@ interface HeaderProps {
   onAddPress: () => void;
   onExportPress: () => void;
   onImportPress?: () => void;
+  onSearchPress?: () => void;
+  onSharePress?: () => void;
   primaryColor: string;
   secondaryColor: string;
   isDark?: boolean;
   backgroundColor?: string;
+  isExporting?: boolean;
 }
 
-export default function Header({ onAddPress, onExportPress, onImportPress, primaryColor, secondaryColor, isDark = false, backgroundColor }: HeaderProps) {
+export default function Header({ onAddPress, onExportPress, onImportPress, onSearchPress, onSharePress, primaryColor, secondaryColor, isDark = false, backgroundColor, isExporting = false }: HeaderProps) {
   const [showSettings, setShowSettings] = useState(false);
 
   // Use the provided background color directly
@@ -47,6 +50,17 @@ export default function Header({ onAddPress, onExportPress, onImportPress, prima
             accessibilityRole="toolbar"
             accessibilityLabel="Header actions"
           >
+            {onSearchPress && (
+              <TouchableOpacity 
+                style={styles.actionButton} 
+                onPress={onSearchPress}
+                accessibilityRole="button"
+                accessibilityLabel="Search"
+                accessibilityHint="Show search bar to find items"
+              >
+                <Search size={16} color="#64748B" />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity 
               style={styles.actionButton} 
               onPress={() => setShowSettings(true)}
@@ -74,7 +88,9 @@ export default function Header({ onAddPress, onExportPress, onImportPress, prima
         onClose={() => setShowSettings(false)}
         onExportPress={onExportPress}
         onImportPress={onImportPress || (() => {})}
+        onSharePress={onSharePress}
         isDark={isDark}
+        isExporting={isExporting}
       />
     </>
   );

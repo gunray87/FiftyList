@@ -52,6 +52,11 @@ export default function SearchBar({
           accessibilityLabel="Search input"
           accessibilityHint="Type to search through your books and movies"
           accessibilityRole="searchbox"
+          // Add stability props to prevent recycling crashes
+          textAlignVertical="center"
+          blurOnSubmit={false}
+          selectTextOnFocus={false}
+          autoComplete="off"
         />
         
         {searchQuery.length > 0 && (

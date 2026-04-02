@@ -42,7 +42,7 @@ export default function GoalProgress({
   const yearToShow = isSpecificYear ? selectedYear : currentYear;
   
   // Helper function to get completion year from an item
-  const getCompletionYear = (item: { completedDate?: string; year: number }): number | null => {
+  const getCompletionYear = (item: { completedDate?: string; publicationYear: number }): number | null => {
     if (!item.completedDate) return null;
     const date = new Date(item.completedDate);
     return date.getFullYear();
@@ -537,10 +537,10 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 12,
+    padding: 8,
     marginHorizontal: 20,
     marginTop: 8,
-    marginBottom: 12,
+    marginBottom: 8,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   leftContent: {
     flex: 1,
@@ -573,7 +573,7 @@ const styles = StyleSheet.create({
   numbersRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    marginBottom: 2,
+    marginBottom: 1,
   },
   currentNumber: {
     fontSize: 20,
@@ -610,7 +610,7 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   editButton: {
     paddingHorizontal: 6,

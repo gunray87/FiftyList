@@ -81,6 +81,8 @@ export default function AppSettingsModal({
     );
   };
 
+
+
   const FormatSelector = ({
     title,
     options,
@@ -297,18 +299,9 @@ export default function AppSettingsModal({
                 </View>
               </View>
 
-              {/* Current Settings Debug (only in development) */}
-              {__DEV__ && (
-                <View style={[styles.debugSection, isDark && styles.darkInfoSection]}>
-                  <Text style={[styles.debugTitle, isDark && styles.darkText]}>
-                    Debug: Current Settings
-                  </Text>
-                  <Text style={[styles.debugText, isDark && styles.darkSecondaryText]}>
-                    Loaded: {JSON.stringify(settings, null, 2)}{'\n\n'}
-                    Local: {JSON.stringify(localSettings, null, 2)}
-                  </Text>
-                </View>
-              )}
+
+
+
             </ScrollView>
 
             {/* Footer */}
@@ -343,6 +336,8 @@ export default function AppSettingsModal({
           </>
         )}
       </View>
+
+
     </Modal>
   );
 }
@@ -504,24 +499,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     lineHeight: 18,
   },
-  debugSection: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
-  },
-  debugTitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#92400E',
-    marginBottom: 8,
-  },
-  debugText: {
-    fontSize: 11,
-    fontFamily: 'Inter-Regular',
-    color: '#92400E',
-    lineHeight: 16,
-  },
+
   footer: {
     flexDirection: 'row',
     padding: 20,
@@ -569,4 +547,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
   },
+
 });

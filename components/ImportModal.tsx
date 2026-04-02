@@ -25,10 +25,11 @@ interface ImportModalProps {
 interface ParsedItem {
   title: string;
   author: string;
-  year?: number;
+  publicationYear?: number;
   rating?: number;
   notes?: string;
   format?: string;
+  medium?: string;
   category: 'completed' | 'inProgress' | 'planned' | 'fails' | 'allTime';
   isBook: boolean;
   confidence: number;
@@ -39,12 +40,45 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
   const [isProcessing, setIsProcessing] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
   const [showPreview, setShowPreview] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showYearPicker, setShowYearPicker] = useState(false);
+  const [selectedMedium, setSelectedMedium] = useState<string>('default');
+  const [showMediumPicker, setShowMediumPicker] = useState(false);
+
+  // Medium options for books and movies
+  const bookMediums = [
+    { value: 'default', label: 'Default (Text)' },
+    { value: 'hardcopy', label: 'Hardcopy' },
+    { value: 'paperback', label: 'Paperback' },
+    { value: 'hardcover', label: 'Hardcover' },
+    { value: 'audio', label: 'Audiobook' },
+    { value: 'kindle', label: 'Kindle' },
+    { value: 'ebook', label: 'E-book' },
+    { value: 'pdf', label: 'PDF' },
+    { value: 'library', label: 'Library' },
+    { value: 'borrowed', label: 'Borrowed' },
+  ];
+
+  const movieMediums = [
+    { value: 'default', label: 'Default (Streaming)' },
+    { value: 'streaming', label: 'Streaming' },
+    { value: 'theater', label: 'Theater' },
+    { value: 'bluray', label: 'Blu-ray' },
+    { value: 'dvd', label: 'DVD' },
+    { value: 'digital', label: 'Digital' },
+    { value: 'rental', label: 'Rental' },
+    { value: 'library', label: 'Library' },
+  ];
 
   const resetModal = () => {
     setImportText('');
     setParsedItems([]);
     setShowPreview(false);
     setIsProcessing(false);
+    setSelectedYear(new Date().getFullYear());
+    setShowYearPicker(false);
+    setSelectedMedium('default');
+    setShowMediumPicker(false);
   };
 
   const handleClose = () => {
@@ -125,7 +159,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
         // Extract title and author
         let title = '';
         let author = '';
-        let year: number | undefined;
+        let publicationYear: number | undefined;
         let rating: number | undefined;
         let notes = '';
         let format = '';
@@ -158,10 +192,10 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
           }
         }
 
-        // Extract year
+        // Extract publication year
         const yearMatch = itemText.match(/\((\d{4})\)/);
         if (yearMatch) {
-          year = parseInt(yearMatch[1]);
+          publicationYear = parseInt(yearMatch[1]);
         }
 
         // Extract rating
@@ -182,10 +216,36 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
           notes = notesMatch[1].trim();
         }
 
-        // Extract format
-        const formatMatch = itemText.match(/\[(hardcopy|audio|ebook|streaming|theater|blu-ray|dvd)\]/i);
+        // Extract format and medium
+        const formatMatch = itemText.match(/\[(hardcopy|audio|ebook|streaming|theater|blu-ray|dvd|kindle|paperback|hardcover|pdf|digital|rental|library|borrowed)\]/i);
         if (formatMatch) {
           format = formatMatch[1].toLowerCase();
+        }
+
+        // Extract medium from text patterns
+        let medium = '';
+        const mediumPatterns = [
+          /(audiobook|audio book|audio)/i,
+          /(kindle|ebook|e-book|digital book)/i,
+          /(hardcopy|hard copy|physical)/i,
+          /(paperback|paper back)/i,
+          /(hardcover|hard cover)/i,
+          /(pdf)/i,
+          /(streaming|netflix|hulu|amazon prime|disney\+)/i,
+          /(theater|cinema|movie theater)/i,
+          /(blu-ray|bluray|blu ray)/i,
+          /(dvd)/i,
+          /(digital|digital copy)/i,
+          /(rental|rented)/i,
+          /(library|borrowed)/i,
+        ];
+
+        for (const pattern of mediumPatterns) {
+          const match = itemText.match(pattern);
+          if (match) {
+            medium = match[1].toLowerCase();
+            break;
+          }
         }
 
         // Determine if it's a book or movie
@@ -207,7 +267,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
         // Calculate confidence score
         let confidence = 0.5;
         if (title && author && author !== 'Unknown') confidence += 0.3;
-        if (year) confidence += 0.1;
+        if (publicationYear) confidence += 0.1;
         if (rating) confidence += 0.1;
         if (format) confidence += 0.1;
 
@@ -215,10 +275,11 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
           items.push({
             title,
             author: author || 'Unknown',
-            year,
+            publicationYear,
             rating,
             notes: notes || undefined,
             format: format || undefined,
+            medium: medium || undefined,
             category: currentCategory,
             isBook,
             confidence: Math.min(confidence, 1.0)
@@ -251,18 +312,27 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
     const books: Omit<Book, 'id'>[] = [];
     const movies: Omit<Movie, 'id'>[] = [];
     const currentDate = new Date().toISOString().split('T')[0];
+    // Create completion date using selected year instead of current year
+    const completionDate = `${selectedYear}-${(new Date().getMonth() + 1).toString().padStart(2, '0')}-${new Date().getDate().toString().padStart(2, '0')}`;
 
     parsedItems.forEach(item => {
+      // Determine the medium to use
+      let finalMedium = item.medium;
+      if (!finalMedium && selectedMedium !== 'default') {
+        finalMedium = selectedMedium;
+      }
+      
       const baseItem = {
         title: item.title,
         author: item.author,
-        year: item.year || new Date().getFullYear(),
+        publicationYear: item.publicationYear || selectedYear, // Use selected year as fallback
         category: item.category,
         notes: item.notes,
         rating: item.rating,
-        format: item.format || (item.isBook ? 'text' : 'streaming'),
+        format: finalMedium || item.format || (item.isBook ? 'text' : 'streaming'), // Use selected medium as format
+        source: finalMedium || (item.isBook ? 'text' : 'streaming'), // Use medium as source
         percentage: item.category === 'completed' ? 100 : (item.category === 'inProgress' ? 50 : undefined),
-        ...(item.category === 'completed' && { completedDate: currentDate }),
+        ...(item.category === 'completed' && { completedDate: completionDate }),
         ...(item.category === 'inProgress' && { dateStarted: currentDate }),
         ...(item.category === 'planned' && { dateAdded: currentDate }),
         ...(item.category === 'fails' && { dateAbandoned: currentDate }),
@@ -279,7 +349,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
     onImport(books, movies);
     Alert.alert(
       'Import Successful!', 
-      `Imported ${books.length} books and ${movies.length} movies.`,
+      `Imported ${books.length} books and ${movies.length} movies with year ${selectedYear}.`,
       [{ text: 'OK', onPress: handleClose }]
     );
   };
@@ -291,7 +361,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
           Import Preview ({parsedItems.length} items found)
         </Text>
         <Text style={[styles.previewSubtitle, isDark && styles.darkSecondaryText]}>
-          Review and confirm the items below
+          Review and confirm the items below • Default year: {selectedYear} • Default medium: {selectedMedium === 'default' ? 'Auto-detect' : selectedMedium}
         </Text>
       </View>
 
@@ -324,21 +394,38 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
           </Text>
           
           <View style={styles.previewMeta}>
-            {item.year && (
-              <Text style={[styles.metaText, isDark && styles.darkTertiaryText]}>
-                {item.year}
-              </Text>
-            )}
+            <Text style={[styles.metaText, isDark && styles.darkTertiaryText]}>
+                          {item.publicationYear || selectedYear}
+            {!item.publicationYear && (
+                <Text style={[styles.metaText, { color: isDark ? '#60A5FA' : '#3B82F6' }]}>
+                  {' '}(default)
+                </Text>
+              )}
+            </Text>
             {item.rating && (
               <Text style={[styles.metaText, isDark && styles.darkTertiaryText]}>
                 ⭐ {item.rating}/5
               </Text>
             )}
-            {item.format && (
-              <Text style={[styles.metaText, isDark && styles.darkTertiaryText]}>
-                {item.format}
-              </Text>
-            )}
+            {(() => {
+              // Calculate the final format that will be applied
+              let finalFormat = item.medium;
+              if (!finalFormat && selectedMedium !== 'default') {
+                finalFormat = selectedMedium;
+              }
+              finalFormat = finalFormat || item.format || (item.isBook ? 'text' : 'streaming');
+              
+              return (
+                <Text style={[styles.metaText, isDark && styles.darkTertiaryText]}>
+                  📄 {finalFormat}
+                  {(!item.medium && selectedMedium !== 'default') && (
+                    <Text style={[styles.metaText, { color: isDark ? '#60A5FA' : '#3B82F6' }]}>
+                      {' '}(default)
+                    </Text>
+                  )}
+                </Text>
+              );
+            })()}
           </View>
           
           {item.notes && (
@@ -400,6 +487,218 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
               </View>
             </View>
 
+            <View style={styles.yearSection}>
+              <Text style={[styles.inputLabel, isDark && styles.darkText]}>
+                Default Year for Imported Items:
+              </Text>
+              <View style={styles.yearInputContainer}>
+                <TextInput
+                  style={[styles.yearInput, isDark && styles.darkYearInput]}
+                  value={selectedYear.toString()}
+                  onChangeText={(text) => {
+                    const year = parseInt(text);
+                    const currentYear = new Date().getFullYear();
+                    if (year && year >= currentYear - 40 && year <= currentYear + 10) {
+                      setSelectedYear(year);
+                    }
+                  }}
+                  placeholder="Enter year"
+                  placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                  keyboardType="numeric"
+                  maxLength={4}
+                />
+                <TouchableOpacity
+                  style={[styles.yearPickerButton, isDark && styles.darkYearPickerButton]}
+                  onPress={() => setShowYearPicker(!showYearPicker)}
+                >
+                  <Text style={[styles.yearPickerButtonText, isDark && styles.darkText]}>
+                    📅
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              {showYearPicker && (
+                <View style={[styles.yearPickerContainer, isDark && styles.darkYearPickerContainer]}>
+                  {/* Decade selector */}
+                  <View style={styles.decadeSelector}>
+                    <Text style={[styles.decadeLabel, isDark && styles.darkText]}>Decade:</Text>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.decadeScroll}
+                    >
+                      {Array.from({ length: 5 }, (_, i) => {
+                        const decadeStart = Math.floor((new Date().getFullYear() - 40) / 10) * 10 + (i * 10);
+                        const decadeEnd = decadeStart + 9;
+                        const isCurrentDecade = selectedYear >= decadeStart && selectedYear <= decadeEnd;
+                        return (
+                          <TouchableOpacity
+                            key={decadeStart}
+                            style={[
+                              styles.decadeOption,
+                              isDark && styles.darkDecadeOption,
+                              isCurrentDecade && { backgroundColor: isDark ? '#3B82F6' : '#2563EB' }
+                            ]}
+                            onPress={() => {
+                              setSelectedYear(decadeStart + 5); // Set to middle of decade
+                            }}
+                          >
+                            <Text style={[
+                              styles.decadeOptionText,
+                              isDark && styles.darkDecadeOptionText,
+                              isCurrentDecade && { color: '#FFFFFF' }
+                            ]}>
+                              {decadeStart}s
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                  
+                  {/* Year grid */}
+                  <View style={styles.yearGrid}>
+                    {(() => {
+                      const baseDecade = Math.floor((new Date().getFullYear() - 40) / 10) * 10;
+                      const currentDecade = Math.floor((selectedYear - baseDecade) / 10);
+                      const decadeStart = baseDecade + (currentDecade * 10);
+                      return Array.from({ length: 10 }, (_, i) => {
+                        const year = decadeStart + i;
+                        return (
+                          <TouchableOpacity
+                            key={year}
+                            style={[
+                              styles.yearGridOption,
+                              isDark && styles.darkYearGridOption,
+                              selectedYear === year && { backgroundColor: isDark ? '#3B82F6' : '#2563EB' }
+                            ]}
+                            onPress={() => {
+                              setSelectedYear(year);
+                              setShowYearPicker(false);
+                            }}
+                          >
+                            <Text style={[
+                              styles.yearGridOptionText,
+                              isDark && styles.darkYearGridOptionText,
+                              selectedYear === year && { color: '#FFFFFF' }
+                            ]}>
+                              {year}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      });
+                    })()}
+                  </View>
+                  
+                  {/* Quick jump buttons */}
+                  <View style={styles.quickJumpContainer}>
+                    <TouchableOpacity
+                      style={[styles.quickJumpButton, isDark && styles.darkQuickJumpButton]}
+                      onPress={() => {
+                        setSelectedYear(new Date().getFullYear());
+                        setShowYearPicker(false);
+                      }}
+                    >
+                      <Text style={[styles.quickJumpText, isDark && styles.darkText]}>This Year</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.quickJumpButton, isDark && styles.darkQuickJumpButton]}
+                      onPress={() => {
+                        setSelectedYear(new Date().getFullYear() - 1);
+                        setShowYearPicker(false);
+                      }}
+                    >
+                      <Text style={[styles.quickJumpText, isDark && styles.darkText]}>Last Year</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.quickJumpButton, isDark && styles.darkQuickJumpButton]}
+                      onPress={() => {
+                        setSelectedYear(new Date().getFullYear() - 10);
+                        setShowYearPicker(false);
+                      }}
+                    >
+                      <Text style={[styles.quickJumpText, isDark && styles.darkText]}>10 Years Ago</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Medium Picker */}
+            <View style={styles.inputSection}>
+              <Text style={[styles.inputLabel, isDark && styles.darkText]}>
+                Default Medium:
+              </Text>
+              <View style={styles.mediumPickerRow}>
+                <TouchableOpacity
+                  style={[styles.mediumPickerButton, isDark && styles.darkMediumPickerButton]}
+                  onPress={() => setShowMediumPicker(!showMediumPicker)}
+                >
+                  <Text style={[styles.mediumPickerButtonText, isDark && styles.darkText]}>
+                    {selectedMedium === 'default' ? '📚 Default' : 
+                     bookMediums.find(m => m.value === selectedMedium)?.label || 
+                     movieMediums.find(m => m.value === selectedMedium)?.label || '📚 Default'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              {showMediumPicker && (
+                <View style={[styles.mediumPickerContainer, isDark && styles.darkMediumPickerContainer]}>
+                  <Text style={[styles.mediumSectionTitle, isDark && styles.darkText]}>Books:</Text>
+                  <View style={styles.mediumGrid}>
+                    {bookMediums.map((medium) => (
+                      <TouchableOpacity
+                        key={medium.value}
+                        style={[
+                          styles.mediumOption,
+                          isDark && styles.darkMediumOption,
+                          selectedMedium === medium.value && { backgroundColor: isDark ? '#3B82F6' : '#2563EB' }
+                        ]}
+                        onPress={() => {
+                          setSelectedMedium(medium.value);
+                          setShowMediumPicker(false);
+                        }}
+                      >
+                        <Text style={[
+                          styles.mediumOptionText,
+                          isDark && styles.darkMediumOptionText,
+                          selectedMedium === medium.value && { color: '#FFFFFF' }
+                        ]}>
+                          {medium.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  
+                  <Text style={[styles.mediumSectionTitle, isDark && styles.darkText]}>Movies:</Text>
+                  <View style={styles.mediumGrid}>
+                    {movieMediums.map((medium) => (
+                      <TouchableOpacity
+                        key={medium.value}
+                        style={[
+                          styles.mediumOption,
+                          isDark && styles.darkMediumOption,
+                          selectedMedium === medium.value && { backgroundColor: isDark ? '#3B82F6' : '#2563EB' }
+                        ]}
+                        onPress={() => {
+                          setSelectedMedium(medium.value);
+                          setShowMediumPicker(false);
+                        }}
+                      >
+                        <Text style={[
+                          styles.mediumOptionText,
+                          isDark && styles.darkMediumOptionText,
+                          selectedMedium === medium.value && { color: '#FFFFFF' }
+                        ]}>
+                          {medium.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+
             <View style={styles.inputSection}>
               <Text style={[styles.inputLabel, isDark && styles.darkText]}>
                 Paste your text below:
@@ -415,6 +714,9 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
                 textAlignVertical="top"
                 scrollEnabled={true}
                 blurOnSubmit={false}
+                // Add stability props to prevent recycling crashes
+                selectTextOnFocus={false}
+                autoComplete="off"
               />
             </View>
 
@@ -721,5 +1023,257 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
+  },
+  // Year picker styles
+  yearSection: {
+    marginBottom: 20,
+  },
+  yearInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  yearInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    fontSize: 18,
+    fontFamily: 'Inter-SemiBold',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  darkYearInput: {
+    backgroundColor: '#1F2937',
+    borderColor: '#4B5563',
+    color: '#FFFFFF',
+  },
+  yearPickerButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  darkYearPickerButton: {
+    backgroundColor: '#1F2937',
+    borderColor: '#4B5563',
+  },
+  yearPickerButtonText: {
+    fontSize: 18,
+    fontFamily: 'Inter-SemiBold',
+    color: '#111827',
+  },
+  yearPickerHint: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#6B7280',
+  },
+  yearPickerContainer: {
+    marginTop: 8,
+    paddingVertical: 16,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  darkYearPickerContainer: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
+  // Decade selector styles
+  decadeSelector: {
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  decadeLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  decadeScroll: {
+    paddingHorizontal: 0,
+    gap: 8,
+  },
+  decadeOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  darkDecadeOption: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  decadeOptionText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+  },
+  darkDecadeOptionText: {
+    color: '#D1D5DB',
+  },
+  // Year grid styles
+  yearGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    gap: 4,
+    marginBottom: 16,
+  },
+  yearGridOption: {
+    width: '18%',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  darkYearGridOption: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  yearGridOptionText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+  },
+  darkYearGridOptionText: {
+    color: '#D1D5DB',
+  },
+  // Quick jump styles
+  quickJumpContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  quickJumpButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  darkQuickJumpButton: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  quickJumpText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+  },
+  // Legacy styles for backward compatibility
+  yearPickerScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  yearOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  darkYearOption: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  yearOptionText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+  },
+  darkYearOptionText: {
+    color: '#D1D5DB',
+  },
+  // Medium picker styles
+  mediumPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mediumPickerButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  darkMediumPickerButton: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  mediumPickerButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+  },
+  mediumPickerContainer: {
+    marginTop: 8,
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  darkMediumPickerContainer: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+  },
+  mediumSectionTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#374151',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  mediumGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  mediumOption: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  darkMediumOption: {
+    backgroundColor: '#374151',
+    borderColor: '#4B5563',
+  },
+  mediumOptionText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#374151',
+  },
+  darkMediumOptionText: {
+    color: '#D1D5DB',
   },
 });

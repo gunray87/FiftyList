@@ -1,19 +1,39 @@
 {
   "expo": {
-    "name": "bolt-expo-nativewind",
+    "name": "FiftyList",
     "slug": "bolt-expo-nativewind",
-    "version": "1.0.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "fiftylist",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#D6B588"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chrisgunn.fiftylist",
+              "buildNumber": "15",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "This app may access your camera for features provided by third-party libraries. The camera is not used unless you choose a feature that requires it."
+        "NSCameraUsageDescription": "This app may access your camera for features provided by third-party libraries. The camera is not used unless you choose a feature that requires it.",
+        "CFBundleDisplayName": "FiftyList",
+        "CFBundleName": "FiftyList",
+        "NSUserNotificationUsageDescription": "FiftyList uses notifications to remind you to share your reading and watching progress, and to celebrate your milestones."
+      }
+    },
+    "android": {
+      "package": "com.chrisgunn.fiftylist",
+      "versionCode": 15,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#D6B588"
       }
     },
     "web": {

@@ -81,7 +81,7 @@ const tourSteps: TourStep[] = [
   {
     id: 'suggestions',
     title: 'Discover New Content',
-    description: 'Get AI-powered suggestions based on your reading and watching history. Find your next favorite book or movie!',
+    description: 'Get personalized suggestions based on your reading and watching history. Find your next favorite book or movie!',
     icon: Sparkles,
     color: '#8B5CF6',
     position: 'bottom'
@@ -108,8 +108,7 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
   const screenHeight = Dimensions.get('window').height;
   const screenWidth = Dimensions.get('window').width;
@@ -125,49 +124,30 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 400,
+        duration: 300,
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
-        tension: 100,
-        friction: 8,
+        tension: 50,
+        friction: 7,
         useNativeDriver: true,
       })
     ]).start();
   };
 
   const animateStepChange = (callback: () => void) => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 30,
-        duration: 200,
-        useNativeDriver: true,
-      })
-    ]).start(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 0.4,
+      duration: 120,
+      useNativeDriver: true,
+    }).start(() => {
       callback();
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
     });
   };
 
@@ -211,17 +191,6 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
   const IconComponent = step.icon;
   const progress = ((currentStep + 1) / tourSteps.length) * 100;
 
-  const getContentPosition = () => {
-    switch (step.position) {
-      case 'top':
-        return { justifyContent: 'flex-start', paddingTop: screenHeight * 0.15 };
-      case 'bottom':
-        return { justifyContent: 'flex-end', paddingBottom: screenHeight * 0.15 };
-      default:
-        return { justifyContent: 'center' };
-    }
-  };
-
   if (!isVisible) return null;
 
   return (
@@ -250,11 +219,9 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
         <Animated.View 
           style={[
             styles.container,
-            getContentPosition(),
             {
               opacity: fadeAnim,
               transform: [
-                { translateY: slideAnim },
                 { scale: scaleAnim }
               ]
             }
@@ -283,7 +250,7 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
                     styles.progressFill,
                     { 
                       width: `${progress}%`,
-                      backgroundColor: step.color
+                      backgroundColor: '#8B5CF6'
                     }
                   ]} 
                 />
@@ -302,24 +269,22 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
                   style={[
                     styles.navButton, 
                     styles.previousButton,
-                    currentStep === 0 && styles.invisibleButton
+                    { opacity: currentStep === 0 ? 0 : 1 }
                   ]}
                   onPress={handlePrevious}
                   disabled={currentStep === 0}
+                  pointerEvents={currentStep === 0 ? 'none' : 'auto'}
                   accessibilityRole="button"
                   accessibilityLabel="Previous step"
                 >
-                  <Text style={[
-                    styles.previousButtonText,
-                    currentStep === 0 && styles.invisibleText
-                  ]}>
+                  <Text style={styles.previousButtonText}>
                     Previous
                   </Text>
                 </TouchableOpacity>
                 
                 {/* Next button - always in the same position */}
                 <TouchableOpacity 
-                  style={[styles.navButton, styles.nextButton, { backgroundColor: step.color }]}
+                  style={[styles.navButton, styles.nextButton]}
                   onPress={handleNext}
                   accessibilityRole="button"
                   accessibilityLabel={currentStep === tourSteps.length - 1 ? "Get started" : "Next step"}
@@ -340,7 +305,7 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
                       styles.stepDot,
                       {
                         backgroundColor: index === currentStep 
-                          ? step.color 
+                          ? '#8B5CF6' 
                           : '#D6C7A8',
                         transform: [{ scale: index === currentStep ? 1.2 : 1 }]
                       }
@@ -400,6 +365,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   card: {
     backgroundColor: '#F5F1E8',
@@ -408,6 +374,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 360,
     width: '100%',
+    minHeight: 500,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -445,6 +412,8 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     marginBottom: 32,
+    minHeight: 140,
+    justifyContent: 'center',
   },
   title: {
     fontSize: 24,
@@ -521,18 +490,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D6C7A8',
   },
-  // Invisible button maintains layout but is not visible/interactive
-  invisibleButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-  },
   nextButton: {
-    shadowColor: '#000',
+    backgroundColor: '#8B5CF6',
+    shadowColor: '#8B5CF6',
     shadowOffset: {
       width: 0,
       height: 3,
     },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 3,
   },
@@ -540,10 +505,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#78716C',
-  },
-  // Invisible text maintains button size but is not visible
-  invisibleText: {
-    color: 'transparent',
   },
   nextButtonText: {
     fontSize: 14,

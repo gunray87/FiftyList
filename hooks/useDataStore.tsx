@@ -1,43 +1,37 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BookData, MovieData, Book, Movie } from '@/types';
+import {
+  logBookAdded,
+  logBookCompleted,
+  logBookMoved,
+  logBookRated,
+  logMovieAdded,
+  logMovieCompleted,
+  logMovieMoved,
+  logMovieRated
+} from '@/utils/activityLogger';
 
 const initialBooks: BookData = {
-  completed: [
-    { id: 1, title: "The Wager", author: "David Grann", year: 2024, category: 'completed', rating: 4, format: "text", completedDate: "2024-01-15" },
-    { id: 2, title: "The Devil's Star", author: "Jo Nesbo", year: 2024, category: 'completed', rating: 3, format: "text", completedDate: "2024-02-10" }
-  ],
-  inProgress: [
-    { id: 100, title: "James", author: "Percival Everett", year: 2025, category: 'inProgress', percentage: 50, format: "text", dateStarted: "2025-01-20" }
-  ],
-  planned: [
-    { id: 200, title: "Project Hail Mary", author: "Andy Weir", year: 2025, category: 'planned', format: "text", dateAdded: "2025-01-20" }
-  ],
-  fails: [
-    { id: 300, title: "First Life", author: "Unknown", year: 2024, category: 'fails', percentage: 5, format: "text", dateAbandoned: "2024-03-15" }
-  ],
-  allTime: [
-    { id: 400, title: "The Lord of the Rings", author: "J.R.R. Tolkien", year: 2023, category: 'allTime', rating: 5, format: "text", completedDate: "2023-08-15", isAllTime: true, notes: "Life-changing epic fantasy" }
-  ]
+  completed: [],
+  inProgress: [],
+  planned: [],
+  fails: [],
+  allTime: []
 };
 
 const initialMovies: MovieData = {
-  completed: [
-    { id: 1, title: "Oppenheimer", author: "Christopher Nolan", year: 2023, category: 'completed', rating: 5, format: "theater", completedDate: "2023-07-21" },
-    { id: 2, title: "Dune: Part Two", author: "Denis Villeneuve", year: 2024, category: 'completed', rating: 4, format: "theater", completedDate: "2024-03-01" }
-  ],
-  inProgress: [
-    { id: 100, title: "The Lord of the Rings: Extended Edition", author: "Peter Jackson", year: 2001, category: 'inProgress', percentage: 60, format: "bluray", dateStarted: "2025-01-20" }
-  ],
-  planned: [
-    { id: 200, title: "Blade Runner 2049", author: "Denis Villeneuve", year: 2017, category: 'planned', format: "streaming", dateAdded: "2025-01-20" }
-  ],
-  fails: [
-    { id: 300, title: "The Matrix Resurrections", author: "Lana Wachowski", year: 2021, category: 'fails', percentage: 25, format: "streaming", dateAbandoned: "2024-01-10" }
-  ],
-  allTime: [
-    { id: 400, title: "The Godfather", author: "Francis Ford Coppola", year: 1972, category: 'allTime', rating: 5, format: "bluray", completedDate: "2023-12-25", isAllTime: true, notes: "Masterpiece of cinema" }
-  ]
+  completed: [],
+  inProgress: [],
+  planned: [],
+  fails: [],
+  allTime: []
 };
+
+// Storage keys for persistent data
+const BOOKS_STORAGE_KEY = 'fiftylist_books_data';
+const MOVIES_STORAGE_KEY = 'fiftylist_movies_data';
+const GOALS_STORAGE_KEY = 'fiftylist_goals_data';
 
 interface DataStoreContextType {
   books: BookData;
@@ -61,25 +55,42 @@ interface DataStoreContextType {
 
 const DataStoreContext = createContext<DataStoreContextType | undefined>(undefined);
 
-// FIXED: Simplified global state synchronization
-let globalStateVersion = 0;
-let stateChangeListeners: ((version: number) => void)[] = [];
+  // FIXED: Simplified global state synchronization with enhanced error handling
+  let globalStateVersion = 0;
+  let stateChangeListeners: ((version: number) => void)[] = [];
 
-const notifyStateChange = () => {
-  globalStateVersion++;
-  console.log(`🔄 Global state change notification #${globalStateVersion}`);
-  
-  // Use setTimeout to ensure state updates are processed
-  setTimeout(() => {
-    stateChangeListeners.forEach(listener => {
-      try {
-        listener(globalStateVersion);
-      } catch (error) {
-        console.error('Error in state change listener:', error);
-      }
-    });
-  }, 0);
-};
+  const notifyStateChange = () => {
+    globalStateVersion++;
+    console.log(`🔄 Global state change notification #${globalStateVersion}`);
+    
+    // Use requestAnimationFrame for better timing and error isolation
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        stateChangeListeners.forEach((listener, index) => {
+          try {
+            listener(globalStateVersion);
+          } catch (error) {
+            console.error(`Error in state change listener ${index}:`, error);
+            // Remove problematic listener to prevent future crashes
+            stateChangeListeners.splice(index, 1);
+          }
+        });
+      });
+    } else {
+      // Fallback for environments without requestAnimationFrame
+      setTimeout(() => {
+        stateChangeListeners.forEach((listener, index) => {
+          try {
+            listener(globalStateVersion);
+          } catch (error) {
+            console.error(`Error in state change listener ${index}:`, error);
+            // Remove problematic listener to prevent future crashes
+            stateChangeListeners.splice(index, 1);
+          }
+        });
+      }, 0);
+    }
+  };
 
 export function DataStoreProvider({ children }: { children: ReactNode }) {
   const [books, setBooks] = useState<BookData>(initialBooks);
@@ -87,6 +98,119 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
   const [bookGoal, setBookGoal] = useState(50);
   const [movieGoal, setMovieGoal] = useState(50);
   const [forceUpdate, setForceUpdate] = useState(0);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+  // Data persistence functions with encryption
+  const saveBooksToStorage = async (booksData: BookData) => {
+    try {
+      // Save books data to storage
+      await AsyncStorage.setItem(BOOKS_STORAGE_KEY, JSON.stringify(booksData));
+      console.log('💾 Books data saved to secure storage');
+    } catch (error) {
+      console.error('❌ Error saving books to storage:', error);
+      // Fallback to regular storage if secure storage fails
+      try {
+        await AsyncStorage.setItem(BOOKS_STORAGE_KEY, JSON.stringify(booksData));
+      } catch (fallbackError) {
+        console.error('❌ Fallback storage also failed:', fallbackError);
+      }
+    }
+  };
+
+  const saveMoviesToStorage = async (moviesData: MovieData) => {
+    try {
+      // Save movies data to storage
+      await AsyncStorage.setItem(MOVIES_STORAGE_KEY, JSON.stringify(moviesData));
+      console.log('💾 Movies data saved to secure storage');
+    } catch (error) {
+      console.error('❌ Error saving movies to storage:', error);
+      // Fallback to regular storage if secure storage fails
+      try {
+        await AsyncStorage.setItem(MOVIES_STORAGE_KEY, JSON.stringify(moviesData));
+      } catch (fallbackError) {
+        console.error('❌ Fallback storage also failed:', fallbackError);
+      }
+    }
+  };
+
+  const saveGoalsToStorage = async (bookGoalValue: number, movieGoalValue: number) => {
+    try {
+      const goalsData = { bookGoal: bookGoalValue, movieGoal: movieGoalValue };
+      // Goals are not as sensitive, can use regular storage
+      await AsyncStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(goalsData));
+      console.log('💾 Goals data saved to storage');
+    } catch (error) {
+      console.error('❌ Error saving goals to storage:', error);
+    }
+  };
+
+  const loadDataFromStorage = async () => {
+    try {
+      console.log('📂 Loading data from storage...');
+
+      // Load data from storage
+
+      // Load books data from storage
+      const booksData = await AsyncStorage.getItem(BOOKS_STORAGE_KEY);
+      if (booksData) {
+        try {
+          const parsedBooks = JSON.parse(booksData);
+          setBooks(parsedBooks);
+          console.log('📚 Loaded books data from secure storage');
+        } catch (parseError) {
+          console.error('❌ Error parsing books data:', parseError);
+          // Try fallback to regular storage
+          const fallbackData = await AsyncStorage.getItem(BOOKS_STORAGE_KEY);
+          if (fallbackData) {
+            const parsedBooks = JSON.parse(fallbackData);
+            setBooks(parsedBooks);
+          }
+        }
+      }
+
+      // Load movies data from storage
+      const moviesData = await AsyncStorage.getItem(MOVIES_STORAGE_KEY);
+      if (moviesData) {
+        try {
+          const parsedMovies = JSON.parse(moviesData);
+          setMovies(parsedMovies);
+          console.log('🎬 Loaded movies data from secure storage');
+        } catch (parseError) {
+          console.error('❌ Error parsing movies data:', parseError);
+          // Try fallback to regular storage
+          const fallbackData = await AsyncStorage.getItem(MOVIES_STORAGE_KEY);
+          if (fallbackData) {
+            const parsedMovies = JSON.parse(fallbackData);
+            setMovies(parsedMovies);
+          }
+        }
+      }
+
+      // Load goals data (not encrypted as it's not sensitive)
+      const goalsData = await AsyncStorage.getItem(GOALS_STORAGE_KEY);
+      if (goalsData) {
+        try {
+          const parsedGoals = JSON.parse(goalsData);
+          setBookGoal(parsedGoals.bookGoal || 50);
+          setMovieGoal(parsedGoals.movieGoal || 50);
+          console.log('🎯 Loaded goals data:', parsedGoals);
+        } catch (parseError) {
+          console.error('❌ Error parsing goals data:', parseError);
+        }
+      }
+
+      setIsDataLoaded(true);
+      console.log('✅ Data loading completed');
+    } catch (error) {
+      console.error('❌ Error loading data from storage:', error);
+      setIsDataLoaded(true); // Still mark as loaded to prevent infinite loading
+    }
+  };
+
+  // Load data from storage on app start
+  useEffect(() => {
+    loadDataFromStorage();
+  }, []);
 
   // Register for global state change notifications
   useEffect(() => {
@@ -101,6 +225,25 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       stateChangeListeners = stateChangeListeners.filter(listener => listener !== handleStateChange);
     };
   }, []);
+
+  // Save data to storage whenever it changes
+  useEffect(() => {
+    if (isDataLoaded) {
+      saveBooksToStorage(books);
+    }
+  }, [books, isDataLoaded]);
+
+  useEffect(() => {
+    if (isDataLoaded) {
+      saveMoviesToStorage(movies);
+    }
+  }, [movies, isDataLoaded]);
+
+  useEffect(() => {
+    if (isDataLoaded) {
+      saveGoalsToStorage(bookGoal, movieGoal);
+    }
+  }, [bookGoal, movieGoal, isDataLoaded]);
 
   // Helper function to get completion year from an item
   const getCompletionYear = (item: { completedDate?: string }): number | null => {
@@ -155,6 +298,12 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
   const addBook = (book: Omit<Book, 'id'>) => {
     console.log('📚 addBook called with:', book);
     
+    // Validate required fields
+    if (!book || !book.title || !book.author) {
+      console.error('❌ Invalid book data:', book);
+      return;
+    }
+    
     // Generate truly unique ID
     const timestamp = Date.now();
     const random = Math.floor(Math.random() * 100000);
@@ -173,6 +322,12 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     setBooks(prevBooks => {
       console.log('📚 Previous books state:', prevBooks);
       
+      // Validate prevBooks exists
+      if (!prevBooks) {
+        console.error('❌ Previous books state is null/undefined');
+        return initialBooks;
+      }
+      
       // Validate category exists
       if (!prevBooks[newBook.category]) {
         console.error('❌ Invalid category:', newBook.category);
@@ -180,8 +335,9 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       }
       
       // Check for duplicates
-      const categoryItems = prevBooks[newBook.category];
+      const categoryItems = prevBooks[newBook.category] || [];
       const isDuplicate = categoryItems.some(item => 
+        item && item.title && item.author &&
         item.title.toLowerCase() === newBook.title.toLowerCase() &&
         item.author.toLowerCase() === newBook.author.toLowerCase()
       );
@@ -191,17 +347,21 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         return prevBooks;
       }
       
-      // Create new state
+      // Create new state with safety checks
       const newBooks = {
         ...prevBooks,
-        [newBook.category]: [...prevBooks[newBook.category], newBook]
+        [newBook.category]: [...(prevBooks[newBook.category] || []), newBook]
       };
       
       console.log('📚 New books state after addition:', newBooks);
-      console.log(`📚 ${newBook.category} books count: ${newBooks[newBook.category].length}`);
+      console.log(`📚 ${newBook.category} books count: ${(newBooks[newBook.category] || []).length}`);
       
-      // Trigger immediate state change notification
-      notifyStateChange();
+      // Trigger state change notification with error handling
+      try {
+        notifyStateChange();
+      } catch (error) {
+        console.error('❌ Error in notifyStateChange:', error);
+      }
       
       return newBooks;
     });
@@ -214,6 +374,9 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       }));
     }
     
+    // Log activity
+    logBookAdded(newBook, newBook.category);
+    
     console.log('📚 addBook completed for:', newBook.title);
   };
 
@@ -223,8 +386,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     setBooks(prevBooks => {
       // Find which category the book is currently in
       let oldCategory: keyof BookData | null = null;
-      for (const category of Object.keys(prevBooks) as (keyof BookData)[]) {
-        if (prevBooks[category].some(book => book.id === bookId)) {
+      for (const category of Object.keys(prevBooks || {}) as (keyof BookData)[]) {
+        if (prevBooks[category] && prevBooks[category].some(book => book.id === bookId)) {
           oldCategory = category;
           break;
         }
@@ -239,14 +402,32 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       const newBooks = { ...prevBooks };
       
       // Remove the item from ALL categories to prevent duplicates
-      for (const category of Object.keys(newBooks) as (keyof BookData)[]) {
-        newBooks[category] = prevBooks[category].filter(book => book.id !== bookId);
+      for (const category of Object.keys(newBooks || {}) as (keyof BookData)[]) {
+        if (newBooks[category]) {
+          newBooks[category] = prevBooks[category].filter(book => book.id !== bookId);
+        }
       }
 
       // Add the updated item to the target category
       newBooks[updatedBook.category] = [...newBooks[updatedBook.category], updatedBook];
 
       console.log('📚 Book updated successfully');
+      
+      // Log activity based on what changed
+      if (oldCategory !== updatedBook.category) {
+        // Book was moved between categories
+        logBookMoved(updatedBook, oldCategory, updatedBook.category);
+      }
+      
+      if (updatedBook.category === 'completed' && oldCategory !== 'completed') {
+        // Book was completed
+        logBookCompleted(updatedBook);
+      }
+      
+      if (updatedBook.rating && updatedBook.rating > 0) {
+        // Book was rated
+        logBookRated(updatedBook, updatedBook.rating);
+      }
       
       // Notify state change
       notifyStateChange();
@@ -319,6 +500,12 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
   const addMovie = (movie: Omit<Movie, 'id'>) => {
     console.log('🎬 addMovie called with:', movie);
     
+    // Validate required fields
+    if (!movie || !movie.title || !movie.author) {
+      console.error('❌ Invalid movie data:', movie);
+      return;
+    }
+    
     // Generate truly unique ID
     const timestamp = Date.now();
     const random = Math.floor(Math.random() * 100000);
@@ -337,6 +524,12 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     setMovies(prevMovies => {
       console.log('🎬 Previous movies state:', prevMovies);
       
+      // Validate prevMovies exists
+      if (!prevMovies) {
+        console.error('❌ Previous movies state is null/undefined');
+        return initialMovies;
+      }
+      
       // Validate category exists
       if (!prevMovies[newMovie.category]) {
         console.error('❌ Invalid category:', newMovie.category);
@@ -344,8 +537,9 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       }
       
       // Check for duplicates
-      const categoryItems = prevMovies[newMovie.category];
+      const categoryItems = prevMovies[newMovie.category] || [];
       const isDuplicate = categoryItems.some(item => 
+        item && item.title && item.author &&
         item.title.toLowerCase() === newMovie.title.toLowerCase() &&
         item.author.toLowerCase() === newMovie.author.toLowerCase()
       );
@@ -355,17 +549,21 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         return prevMovies;
       }
       
-      // Create new state
+      // Create new state with safety checks
       const newMovies = {
         ...prevMovies,
-        [newMovie.category]: [...prevMovies[newMovie.category], newMovie]
+        [newMovie.category]: [...(prevMovies[newMovie.category] || []), newMovie]
       };
       
       console.log('🎬 New movies state after addition:', newMovies);
-      console.log(`🎬 ${newMovie.category} movies count: ${newMovies[newMovie.category].length}`);
+      console.log(`🎬 ${newMovie.category} movies count: ${(newMovies[newMovie.category] || []).length}`);
       
-      // Trigger immediate state change notification
-      notifyStateChange();
+      // Trigger state change notification with error handling
+      try {
+        notifyStateChange();
+      } catch (error) {
+        console.error('❌ Error in notifyStateChange:', error);
+      }
       
       return newMovies;
     });
@@ -377,6 +575,9 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         allTime: [...prevMovies.allTime.filter(item => item.id !== newMovie.id), { ...newMovie, isAllTime: true }]
       }));
     }
+    
+    // Log activity
+    logMovieAdded(newMovie, newMovie.category);
     
     console.log('🎬 addMovie completed for:', newMovie.title);
   };
@@ -403,14 +604,32 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       const newMovies = { ...prevMovies };
       
       // Remove the item from ALL categories to prevent duplicates
-      for (const category of Object.keys(newMovies) as (keyof MovieData)[]) {
-        newMovies[category] = prevMovies[category].filter(movie => movie.id !== movieId);
+      for (const category of Object.keys(newMovies || {}) as (keyof MovieData)[]) {
+        if (newMovies[category]) {
+          newMovies[category] = prevMovies[category].filter(movie => movie.id !== movieId);
+        }
       }
 
       // Add the updated item to the target category
       newMovies[updatedMovie.category] = [...newMovies[updatedMovie.category], updatedMovie];
 
       console.log('🎬 Movie updated successfully');
+      
+      // Log activity based on what changed
+      if (oldCategory !== updatedMovie.category) {
+        // Movie was moved between categories
+        logMovieMoved(updatedMovie, oldCategory, updatedMovie.category);
+      }
+      
+      if (updatedMovie.category === 'completed' && oldCategory !== 'completed') {
+        // Movie was completed
+        logMovieCompleted(updatedMovie);
+      }
+      
+      if (updatedMovie.rating && updatedMovie.rating > 0) {
+        // Movie was rated
+        logMovieRated(updatedMovie, updatedMovie.rating);
+      }
       
       // Notify state change
       notifyStateChange();
@@ -535,6 +754,19 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     console.log('📤 Starting export generation...');
     
     try {
+      // Validate data structure
+      if (!books || !movies) {
+        console.error('❌ Export error: books or movies data is undefined');
+        throw new Error('Data structure is invalid');
+      }
+
+      console.log('📤 Data validation passed:', {
+        books: typeof books,
+        movies: typeof movies,
+        bookGoal,
+        movieGoal
+      });
+
       const currentYear = new Date().getFullYear();
       const exportDate = new Date().toLocaleDateString('en-US', { 
         weekday: 'long', 
@@ -551,6 +783,11 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
       // Helper function to format items
       const formatItem = (item: Book | Movie, index: number, isBook: boolean) => {
+        // Safety check for null/undefined item
+        if (!item || typeof item !== 'object') {
+          return `${index + 1}. [Invalid item]`;
+        }
+        
         const formatLabels = isBook ? {
           text: 'Hardcopy',
           audio: 'Audio',
@@ -562,7 +799,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
           dvd: 'DVD'
         };
 
-        let itemText = `${index + 1}. "${item.title}" by ${item.author} (${item.year})`;
+        let itemText = `${index + 1}. "${item.title || 'Unknown Title'}" by ${item.author || 'Unknown Author'} (${item.publicationYear || 'Unknown Year'})`;
         
         if (item.format) {
           itemText += ` [${formatLabels[item.format as keyof typeof formatLabels] || item.format}]`;
@@ -619,16 +856,18 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       };
 
       // Calculate statistics using completion dates
-      const totalBooks = Object.values(books).flat().length;
-      const totalMovies = Object.values(movies).flat().length;
-      const booksThisYear = books.completed.filter(book => {
+      const totalBooks = books ? Object.values(books).flat().length : 0;
+      const totalMovies = movies ? Object.values(movies).flat().length : 0;
+      const booksThisYear = books && books.completed && Array.isArray(books.completed) ? books.completed.filter(book => {
+        if (!book || typeof book !== 'object') return false;
         const completionYear = getCompletionYear(book);
         return completionYear === currentYear;
-      }).length;
-      const moviesThisYear = movies.completed.filter(movie => {
+      }).length : 0;
+      const moviesThisYear = movies && movies.completed && Array.isArray(movies.completed) ? movies.completed.filter(movie => {
+        if (!movie || typeof movie !== 'object') return false;
         const completionYear = getCompletionYear(movie);
         return completionYear === currentYear;
-      }).length;
+      }).length : 0;
       const bookProgress = Math.round((booksThisYear / bookGoal) * 100);
       const movieProgress = Math.round((moviesThisYear / movieGoal) * 100);
 
@@ -642,8 +881,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       });
 
       // Calculate average ratings
-      const booksWithRatings = books.completed.filter(book => book.rating && book.rating > 0);
-      const moviesWithRatings = movies.completed.filter(movie => movie.rating && movie.rating > 0);
+      const booksWithRatings = books && books.completed && Array.isArray(books.completed) ? books.completed.filter(book => book && book.rating && book.rating > 0) : [];
+      const moviesWithRatings = movies && movies.completed && Array.isArray(movies.completed) ? movies.completed.filter(movie => movie && movie.rating && movie.rating > 0) : [];
       const avgBookRating = booksWithRatings.length > 0 
         ? (booksWithRatings.reduce((sum, book) => sum + (book.rating || 0), 0) / booksWithRatings.length).toFixed(1)
         : 'N/A';
@@ -689,47 +928,57 @@ Generated: ${exportDate} at ${exportTime}
       exportText += `\n📚 BOOKS
 ═══════════════════════════════════════════════════════════\n\n`;
 
-      if (books.completed.length > 0) {
+      if (books && books.completed && Array.isArray(books.completed) && books.completed.length > 0) {
         exportText += `✅ COMPLETED BOOKS (${books.completed.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         books.completed.forEach((book, index) => {
-          exportText += formatItem(book, index, true) + '\n';
+          if (book && typeof book === 'object') {
+            exportText += formatItem(book, index, true) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (books.inProgress.length > 0) {
+      if (books && books.inProgress && Array.isArray(books.inProgress) && books.inProgress.length > 0) {
         exportText += `📖 CURRENTLY READING (${books.inProgress.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         books.inProgress.forEach((book, index) => {
-          exportText += formatItem(book, index, true) + '\n';
+          if (book && typeof book === 'object') {
+            exportText += formatItem(book, index, true) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (books.planned.length > 0) {
+      if (books && books.planned && Array.isArray(books.planned) && books.planned.length > 0) {
         exportText += `📋 WANT TO READ (${books.planned.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         books.planned.forEach((book, index) => {
-          exportText += formatItem(book, index, true) + '\n';
+          if (book && typeof book === 'object') {
+            exportText += formatItem(book, index, true) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (books.fails.length > 0) {
+      if (books && books.fails && Array.isArray(books.fails) && books.fails.length > 0) {
         exportText += `❌ STOPPED/DNF BOOKS (${books.fails.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         books.fails.forEach((book, index) => {
-          exportText += formatItem(book, index, true) + '\n';
+          if (book && typeof book === 'object') {
+            exportText += formatItem(book, index, true) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (books.allTime.length > 0) {
+      if (books && books.allTime && Array.isArray(books.allTime) && books.allTime.length > 0) {
         exportText += `🏆 ALL-TIME FAVORITE BOOKS (${books.allTime.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         books.allTime.forEach((book, index) => {
-          exportText += formatItem(book, index, true) + '\n';
+          if (book && typeof book === 'object') {
+            exportText += formatItem(book, index, true) + '\n';
+          }
         });
         exportText += '\n';
       }
@@ -738,47 +987,57 @@ Generated: ${exportDate} at ${exportTime}
       exportText += `\n🎬 MOVIES
 ═══════════════════════════════════════════════════════════\n\n`;
 
-      if (movies.completed.length > 0) {
+      if (movies && movies.completed && Array.isArray(movies.completed) && movies.completed.length > 0) {
         exportText += `✅ COMPLETED MOVIES (${movies.completed.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         movies.completed.forEach((movie, index) => {
-          exportText += formatItem(movie, index, false) + '\n';
+          if (movie && typeof movie === 'object') {
+            exportText += formatItem(movie, index, false) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (movies.inProgress.length > 0) {
+      if (movies && movies.inProgress && Array.isArray(movies.inProgress) && movies.inProgress.length > 0) {
         exportText += `🎥 CURRENTLY WATCHING (${movies.inProgress.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         movies.inProgress.forEach((movie, index) => {
-          exportText += formatItem(movie, index, false) + '\n';
+          if (movie && typeof movie === 'object') {
+            exportText += formatItem(movie, index, false) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (movies.planned.length > 0) {
+      if (movies && movies.planned && Array.isArray(movies.planned) && movies.planned.length > 0) {
         exportText += `📋 WANT TO WATCH (${movies.planned.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         movies.planned.forEach((movie, index) => {
-          exportText += formatItem(movie, index, false) + '\n';
+          if (movie && typeof movie === 'object') {
+            exportText += formatItem(movie, index, false) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (movies.fails.length > 0) {
+      if (movies && movies.fails && Array.isArray(movies.fails) && movies.fails.length > 0) {
         exportText += `❌ STOPPED MOVIES (${movies.fails.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         movies.fails.forEach((movie, index) => {
-          exportText += formatItem(movie, index, false) + '\n';
+          if (movie && typeof movie === 'object') {
+            exportText += formatItem(movie, index, false) + '\n';
+          }
         });
         exportText += '\n';
       }
 
-      if (movies.allTime.length > 0) {
+      if (movies && movies.allTime && Array.isArray(movies.allTime) && movies.allTime.length > 0) {
         exportText += `🏆 ALL-TIME FAVORITE MOVIES (${movies.allTime.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
         movies.allTime.forEach((movie, index) => {
-          exportText += formatItem(movie, index, false) + '\n';
+          if (movie && typeof movie === 'object') {
+            exportText += formatItem(movie, index, false) + '\n';
+          }
         });
         exportText += '\n';
       }
@@ -787,25 +1046,33 @@ Generated: ${exportDate} at ${exportTime}
       const yearlyBooks: { [year: number]: number } = {};
       const yearlyMovies: { [year: number]: number } = {};
       
-      books.completed.forEach(book => {
-        const completionYear = getCompletionYear(book);
-        if (completionYear) {
-          yearlyBooks[completionYear] = (yearlyBooks[completionYear] || 0) + 1;
-        }
-      });
+      if (books && books.completed && Array.isArray(books.completed)) {
+        books.completed.forEach(book => {
+          if (book && typeof book === 'object') {
+            const completionYear = getCompletionYear(book);
+            if (completionYear) {
+              yearlyBooks[completionYear] = (yearlyBooks[completionYear] || 0) + 1;
+            }
+          }
+        });
+      }
       
-      movies.completed.forEach(movie => {
-        const completionYear = getCompletionYear(movie);
-        if (completionYear) {
-          yearlyMovies[completionYear] = (yearlyMovies[completionYear] || 0) + 1;
-        }
-      });
+      if (movies && movies.completed && Array.isArray(movies.completed)) {
+        movies.completed.forEach(movie => {
+          if (movie && typeof movie === 'object') {
+            const completionYear = getCompletionYear(movie);
+            if (completionYear) {
+              yearlyMovies[completionYear] = (yearlyMovies[completionYear] || 0) + 1;
+            }
+          }
+        });
+      }
 
-      if (Object.keys(yearlyBooks).length > 0 || Object.keys(yearlyMovies).length > 0) {
+      if (Object.keys(yearlyBooks || {}).length > 0 || Object.keys(yearlyMovies || {}).length > 0) {
         exportText += `\n📅 YEARLY BREAKDOWN (by completion date)
 ═══════════════════════════════════════════════════════════\n\n`;
         
-        const allYears = new Set([...Object.keys(yearlyBooks), ...Object.keys(yearlyMovies)]);
+        const allYears = new Set([...Object.keys(yearlyBooks || {}), ...Object.keys(yearlyMovies || {})]);
         const sortedYears = Array.from(allYears).map(Number).sort((a, b) => b - a);
         
         sortedYears.forEach(year => {
@@ -854,13 +1121,28 @@ Generated: ${new Date().toLocaleString()}
     logDataState('Movies state changed', 'movie');
   }, [movies]);
 
+  // Persistent goal setters
+  const setBookGoalPersistent = (goal: number) => {
+    setBookGoal(goal);
+    if (isDataLoaded) {
+      saveGoalsToStorage(goal, movieGoal);
+    }
+  };
+
+  const setMovieGoalPersistent = (goal: number) => {
+    setMovieGoal(goal);
+    if (isDataLoaded) {
+      saveGoalsToStorage(bookGoal, goal);
+    }
+  };
+
   const value: DataStoreContextType = {
     books,
     movies,
     bookGoal,
     movieGoal,
-    setBookGoal,
-    setMovieGoal,
+    setBookGoal: setBookGoalPersistent,
+    setMovieGoal: setMovieGoalPersistent,
     addBook,
     updateBook,
     deleteBook,

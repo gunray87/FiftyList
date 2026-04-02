@@ -13,28 +13,40 @@ export default function StatsScreen() {
 
   const currentYear = new Date().getFullYear();
   
-  // Calculate yearly stats
-  const getYearlyStats = (items: any[]) => {
+  // Helper function to get completion year from an item
+  const getCompletionYear = (item: { completedDate?: string }): number | null => {
+    if (!item.completedDate) return null;
+    const date = new Date(item.completedDate);
+    return date.getFullYear();
+  };
+  
+  // Calculate completion year stats (when you finished items)
+  const getCompletionYearStats = (items: any[]) => {
     const yearStats: { [key: number]: number } = {};
     items.forEach(item => {
-      if (item.year) {
-        yearStats[item.year] = (yearStats[item.year] || 0) + 1;
+      const completionYear = getCompletionYear(item);
+      if (completionYear) {
+        yearStats[completionYear] = (yearStats[completionYear] || 0) + 1;
       }
     });
     return yearStats;
   };
 
-  const bookYearStats = getYearlyStats(books.completed);
-  const movieYearStats = getYearlyStats(movies.completed);
 
-  // Get top years
-  const topBookYears = Object.entries(bookYearStats)
+
+  const bookCompletionYearStats = getCompletionYearStats(books?.completed || []);
+  const movieCompletionYearStats = getCompletionYearStats(movies?.completed || []);
+
+  // Get top completion years
+  const topBookCompletionYears = Object.entries(bookCompletionYearStats || {})
     .sort(([,a], [,b]) => b - a)
     .slice(0, 3);
   
-  const topMovieYears = Object.entries(movieYearStats)
+  const topMovieCompletionYears = Object.entries(movieCompletionYearStats || {})
     .sort(([,a], [,b]) => b - a)
     .slice(0, 3);
+
+
 
   // Calculate format distribution
   const getFormatStats = (items: any[]) => {
@@ -47,8 +59,8 @@ export default function StatsScreen() {
     return formatStats;
   };
 
-  const bookFormatStats = getFormatStats(books.completed);
-  const movieFormatStats = getFormatStats(movies.completed);
+  const bookFormatStats = getFormatStats(books?.completed || []);
+  const movieFormatStats = getFormatStats(movies?.completed || []);
 
   // Calculate rating distribution
   const getRatingStats = (items: any[]) => {
@@ -61,28 +73,68 @@ export default function StatsScreen() {
     return ratingStats;
   };
 
-  const bookRatingStats = getRatingStats(books.completed);
-  const movieRatingStats = getRatingStats(movies.completed);
+  const bookRatingStats = getRatingStats(books?.completed || []);
+  const movieRatingStats = getRatingStats(movies?.completed || []);
 
-  const totalBooks = books.completed.length;
-  const totalMovies = movies.completed.length;
-  const booksThisYear = books.completed.filter(book => book.year === currentYear).length;
-  const moviesThisYear = movies.completed.filter(movie => movie.year === currentYear).length;
+  const totalBooks = books?.completed?.length || 0;
+  const totalMovies = movies?.completed?.length || 0;
+  const booksThisYear = books?.completed?.filter(book => {
+    if (!book) return false;
+    const completionYear = getCompletionYear(book);
+    return completionYear === currentYear;
+  }).length || 0;
+  const moviesThisYear = movies?.completed?.filter(movie => {
+    if (!movie) return false;
+    const completionYear = getCompletionYear(movie);
+    return completionYear === currentYear;
+  }).length || 0;
 
-  const averageBookRating = books.completed.filter(b => b.rating).reduce((sum, b) => sum + (b.rating || 0), 0) / books.completed.filter(b => b.rating).length || 0;
-  const averageMovieRating = movies.completed.filter(m => m.rating).reduce((sum, m) => sum + (m.rating || 0), 0) / movies.completed.filter(m => m.rating).length || 0;
+  const averageBookRating = books?.completed?.filter(b => b && b.rating)?.reduce((sum, b) => sum + (b.rating || 0), 0) / (books?.completed?.filter(b => b && b.rating)?.length || 1) || 0;
+  const averageMovieRating = movies?.completed?.filter(m => m && m.rating)?.reduce((sum, m) => sum + (m.rating || 0), 0) / (movies?.completed?.filter(m => m && m.rating)?.length || 1) || 0;
 
   const handleExport = async () => {
     try {
       const exportText = generateComprehensiveExport();
       
-      await Share.share({
-        message: exportText,
-        title: 'My Complete Reading & Watching List',
-      });
+      // Platform-aware export handling
+      if (Platform.OS === 'web') {
+        // For web, create a downloadable file
+        const blob = new Blob([exportText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `fiftylist-export-${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        // For mobile, use Share API
+        if (Share.share) {
+          await Share.share({
+            message: exportText,
+            title: 'My Complete Reading & Watching List',
+          });
+        } else {
+          // Fallback for platforms where Share is not available
+          Alert.alert(
+            'Export Complete', 
+            'Your data has been prepared for export. Please copy the text from the console.',
+            [
+              { text: 'OK', onPress: () => console.log('Export data:', exportText) }
+            ]
+          );
+        }
+      }
     } catch (error) {
       console.error('Error sharing:', error);
-      Alert.alert('Export Error', 'Failed to export data. Please try again.');
+      
+      // Enhanced error handling with platform-specific messages
+      const errorMessage = Platform.OS === 'web' 
+        ? 'Failed to download export file. Please try again.'
+        : 'Failed to export data. Please try again.';
+        
+      Alert.alert('Export Error', errorMessage);
     }
   };
 
@@ -197,13 +249,14 @@ export default function StatsScreen() {
           />
         </View>
 
-        {/* Yearly Performance */}
+        {/* Completion by Year */}
         <View style={styles.yearlyCard}>
-          <Text style={styles.sectionTitle}>Yearly Performance</Text>
+          <Text style={styles.sectionTitle}>Completion by Year</Text>
+          <Text style={styles.sectionSubtitle}>When you finished items</Text>
           <View style={styles.yearlyGrid}>
             <View style={styles.yearlySection}>
               <Text style={styles.yearlySubtitle}>Books</Text>
-              {topBookYears.map(([year, count]) => (
+              {topBookCompletionYears.map(([year, count]) => (
                 <View key={year} style={styles.yearlyItem}>
                   <Text style={styles.yearlyYear}>{year}</Text>
                   <View style={styles.yearlyBar}>
@@ -211,7 +264,7 @@ export default function StatsScreen() {
                       style={[
                         styles.yearlyBarFill,
                         { 
-                          width: `${(count / Math.max(...Object.values(bookYearStats))) * 100}%`,
+                          width: `${(count / Math.max(...Object.values(bookCompletionYearStats))) * 100}%`,
                           backgroundColor: '#F59E0B'
                         }
                       ]} 
@@ -224,7 +277,7 @@ export default function StatsScreen() {
             
             <View style={styles.yearlySection}>
               <Text style={styles.yearlySubtitle}>Movies</Text>
-              {topMovieYears.map(([year, count]) => (
+              {topMovieCompletionYears.map(([year, count]) => (
                 <View key={year} style={styles.yearlyItem}>
                   <Text style={styles.yearlyYear}>{year}</Text>
                   <View style={styles.yearlyBar}>
@@ -232,7 +285,7 @@ export default function StatsScreen() {
                       style={[
                         styles.yearlyBarFill,
                         { 
-                          width: `${(count / Math.max(...Object.values(movieYearStats))) * 100}%`,
+                          width: `${(count / Math.max(...Object.values(movieCompletionYearStats))) * 100}%`,
                           backgroundColor: '#3B82F6'
                         }
                       ]} 
@@ -244,6 +297,8 @@ export default function StatsScreen() {
             </View>
           </View>
         </View>
+
+
 
         {/* Average Ratings */}
         <View style={styles.ratingsCard}>
@@ -269,7 +324,7 @@ export default function StatsScreen() {
         </View>
 
         {/* Format Distribution */}
-        {Object.keys(bookFormatStats).length > 0 && (
+        {Object.keys(bookFormatStats || {}).length > 0 && (
           <FormatChart
             data={bookFormatStats}
             title="Book Formats"
@@ -277,7 +332,7 @@ export default function StatsScreen() {
           />
         )}
 
-        {Object.keys(movieFormatStats).length > 0 && (
+        {Object.keys(movieFormatStats || {}).length > 0 && (
           <FormatChart
             data={movieFormatStats}
             title="Movie Formats"
@@ -383,6 +438,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
     color: '#1E293B',
+    marginBottom: 8,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#64748B',
     marginBottom: 16,
   },
   yearlyCard: {
