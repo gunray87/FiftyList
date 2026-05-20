@@ -179,17 +179,17 @@ const startFreeTrial = async () => {
 **Missing:**
 - User account creation
 - Email collection
-- Authentication flow
+- Entitlement purchase/restore flow
 - Backend trial registration
 - Trial conversion tracking
 
 ### Expected Behavior
-Should trigger authentication flow:
-1. Show signup modal
-2. Collect email + create account
-3. Register trial with backend
+Should trigger entitlement flow:
+1. Start trial/purchase flow
+2. Validate entitlement state
+3. Register trial state if backend is used
 4. Enable premium features
-5. Set up trial expiration notifications
+5. Support restore purchases
 
 ---
 
@@ -292,14 +292,14 @@ Look for actual `fetch()` calls in:
    - Connect to UpgradeModal
    - Test conversion flow
 
-### Phase 3: Implement Authentication (4-8 hours)
-**Goal:** Create user accounts for trials
+### Phase 3: Implement Entitlements (4-8 hours)
+**Goal:** Back trials/upgrades with real Apple purchase state
 
-6. **Add authentication system** (Issue #5)
-   - Implement Supabase or Firebase auth
-   - Create signup/login flow
-   - Connect trial to user account
-   - Set up backend subscription tracking
+6. **Add purchase entitlement system** (Issue #5)
+   - Implement RevenueCat + Apple IAP flow
+   - Add restore purchases support
+   - Connect trial/premium state to entitlements
+   - Set up backend tracking only if needed later
 
 ---
 
@@ -380,12 +380,11 @@ After fixes are applied:
 - [ ] Network tab shows actual API requests
 - [ ] Error handling works if API fails
 
-### Authentication & Trials
-- [ ] "Start Free Trial" opens signup modal
-- [ ] Can enter email and create account
-- [ ] Trial is registered with backend
-- [ ] Premium features activate after signup
-- [ ] Trial expiration is tracked
+### Entitlements & Trials
+- [ ] "Start Free Trial" maps to entitlement flow
+- [ ] RevenueCat products are configured correctly
+- [ ] Premium features activate after purchase/restore
+- [ ] Trial expiration is tracked in entitlement state
 - [ ] Can upgrade trial to paid
 
 ---
@@ -421,13 +420,12 @@ Before marking as "fixed":
 - [ ] Results parsed correctly
 - [ ] Premium check before API calls
 
-### Authentication
-- [ ] Auth provider configured (Supabase/Firebase)
-- [ ] Signup modal implemented
-- [ ] Email validation
-- [ ] Account creation works
-- [ ] Trial tracked in backend
-- [ ] Session persists across app restarts
+### Entitlements
+- [ ] RevenueCat configured and initialized
+- [ ] Products and offerings mapped correctly
+- [ ] Purchase flow works end-to-end
+- [ ] Restore purchases works across reinstalls/devices
+- [ ] Trial and paid states are validated
 
 ---
 
@@ -437,7 +435,7 @@ Before marking as "fixed":
 2. **Investigate Issue #2** (Settings button in Movies tab)
 3. **Implement Issue #3 fix** (Make upgrade prompts tappable)
 4. **Verify Issue #6** (Check if APIs are actually implemented)
-5. **Plan Issue #5 fix** (Authentication system design)
+5. **Plan Issue #5 fix** (RevenueCat entitlement design)
 
 ---
 
@@ -446,7 +444,7 @@ Before marking as "fixed":
 1. **Are the Books tab icons supposed to work?** Or is this a known issue?
 2. **Are the API services implemented?** Or are they placeholder code?
 3. **Is there a backend?** Or is this a fully local app?
-4. **Should trials require authentication?** Or stay anonymous?
+4. **Should trials be anonymous (device-local) or account-linked later?**
 5. **What payment processor will be used?** RevenueCat? Stripe? Apple IAP?
 
 ---

@@ -4,6 +4,8 @@ export interface Book {
   author: string;
   publicationYear: number;
   category: 'completed' | 'inProgress' | 'planned' | 'fails' | 'allTime';
+  /** Catalog / synopsis text (search, APIs), separate from personal notes */
+  description?: string;
   notes?: string;
   rating?: number;
   format?: 'text' | 'audio' | 'ebook';
@@ -22,6 +24,8 @@ export interface Movie {
   author: string; // Director
   publicationYear: number;
   category: 'completed' | 'inProgress' | 'planned' | 'fails' | 'allTime';
+  /** Catalog / synopsis text (search, APIs), separate from personal notes */
+  description?: string;
   notes?: string;
   rating?: number;
   format?: 'streaming' | 'theater' | 'bluray' | 'dvd';
@@ -55,6 +59,7 @@ export interface FormData {
   author: string;
   publicationYear: number;
   category: 'completed' | 'inProgress' | 'planned' | 'fails' | 'allTime';
+  description: string;
   notes: string;
   rating: number;
   format: string;
@@ -104,6 +109,29 @@ export interface SharingOptions {
   includeCategories: string[];
   includeItemTypes: ItemType[];
   format: 'summary' | 'detailed' | 'list';
+}
+
+export type ExportYearFilter = number | 'all';
+
+export interface ExportSections {
+  overview: boolean;
+  books: boolean;
+  movies: boolean;
+  yearlyBreakdown: boolean;
+}
+
+export interface ExportCategoryToggles {
+  completed: boolean;
+  inProgress: boolean;
+  planned: boolean;
+  fails: boolean;
+  allTime: boolean;
+}
+
+export interface ExportOptions {
+  year: ExportYearFilter;
+  sections: ExportSections;
+  categories: ExportCategoryToggles;
 }
 
 export interface ReminderSettings {

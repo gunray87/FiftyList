@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -37,7 +37,8 @@ interface AddEditModalProps {
     author: string;
     publicationYear: number;
     format: string;
-    notes: string;
+    notes?: string;
+    description?: string;
     rating: number;
   };
 }
@@ -52,6 +53,36 @@ interface SearchResult {
   rating?: number;
 }
 
+const LLM_PROXY_BASE_URL = process.env.EXPO_PUBLIC_LLM_PROXY_BASE_URL;
+
+/** Parse YYYY-MM-DD without UTC shift (fixes off-by-one for some locales vs `Date` parsing). */
+function parseCompletedDateParts(iso: string): { year: number; month: number; day: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) return null;
+  return {
+    year: parseInt(m[1], 10),
+    month: parseInt(m[2], 10),
+    day: parseInt(m[3], 10),
+  };
+}
+
+/** Row height matches paddingVertical (8×2) + ~18px body text → used to scroll wheels to selection */
+const DATE_PICKER_ROW_HEIGHT = 38;
+const DATE_PICKER_VIEWPORT_HEIGHT = 120;
+
+const YEARS_BEFORE = 55;
+const YEARS_AFTER = 2;
+
+function clampDayToMonth(year: number, month: number, day: number) {
+  const max = new Date(year, month, 0).getDate();
+  return Math.min(day, max);
+}
+
+function pad2(n: number) {
+  return n.toString().padStart(2, '0');
+}
+const ENABLE_LLM_ASSIST = process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST === 'true';
+
 export default function AddEditModal({
   visible,
   onClose,
@@ -63,7 +94,7 @@ export default function AddEditModal({
   suggestionData,
 }: AddEditModalProps) {
   const { settings, isLoading: settingsLoading } = useAppSettings();
-  const { features, upgradeToPremium } = useSubscription();
+  const { features, subscribeToTier } = useSubscription();
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -71,8 +102,14 @@ export default function AddEditModal({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showAPISearchButton, setShowAPISearchButton] = useState(false);
   const [isAPISearching, setIsAPISearching] = useState(false);
+  const [isLLMDraftLoading, setIsLLMDraftLoading] = useState(false);
+  const [llmStatusMessage, setLlmStatusMessage] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  const monthScrollRef = useRef<ScrollView>(null);
+  const dayScrollRef = useRef<ScrollView>(null);
+  const yearScrollRef = useRef<ScrollView>(null);
 
   // Get current date for default values
   const currentDate = new Date();
@@ -89,6 +126,7 @@ export default function AddEditModal({
     author: '',
     publicationYear: new Date().getFullYear(),
     category: 'completed',
+    description: '',
     notes: '',
     rating: 0,
     format: isBook ? 'text' : 'streaming',
@@ -97,6 +135,25 @@ export default function AddEditModal({
     completedDate: `${currentYear}-${currentMonth.toString().padStart(2, '0')}-${currentDay.toString().padStart(2, '0')}`,
     isAllTime: false,
   });
+
+  const syncPickerControlsFromISO = useCallback((iso: string) => {
+    const raw = parseCompletedDateParts(iso);
+    if (!raw) return;
+    const safeDay = clampDayToMonth(raw.year, raw.month, raw.day);
+    const normalized = `${raw.year}-${pad2(raw.month)}-${pad2(safeDay)}`;
+    setSelectedYear(raw.year);
+    setSelectedMonth(raw.month);
+    setSelectedDay(safeDay);
+    if (normalized !== iso.trim()) {
+      setFormData(prev => ({ ...prev, completedDate: normalized }));
+    }
+  }, []);
+
+  const yearOptions = useMemo(() => {
+    const low = Math.min(currentYear - YEARS_BEFORE, selectedYear);
+    const high = Math.max(currentYear + YEARS_AFTER, selectedYear);
+    return Array.from({ length: high - low + 1 }, (_, i) => low + i);
+  }, [currentYear, selectedYear]);
 
   // Initialize form data with proper defaults
   useEffect(() => {
@@ -109,6 +166,7 @@ export default function AddEditModal({
         author: editingItem.author,
         publicationYear: editingItem.publicationYear,
         category: editingItem.category,
+        description: editingItem.description || '',
         notes: editingItem.notes || '',
         rating: editingItem.rating || 0,
         format: editingItem.format || (isBook ? settings.defaultBookFormat : settings.defaultMovieFormat),
@@ -118,14 +176,7 @@ export default function AddEditModal({
         isAllTime: editingItem.isAllTime || false,
       };
       setFormData(editFormData);
-      
-      // Set date picker values if completedDate exists
-      if (editingItem.completedDate) {
-        const date = new Date(editingItem.completedDate);
-        setSelectedYear(date.getFullYear());
-        setSelectedMonth(date.getMonth() + 1);
-        setSelectedDay(date.getDate());
-      }
+      syncPickerControlsFromISO(editFormData.completedDate);
     } else if (suggestionData) {
       // Pre-populate with suggestion data
       const suggestionFormData = {
@@ -133,7 +184,8 @@ export default function AddEditModal({
         author: suggestionData.author,
         publicationYear: suggestionData.publicationYear,
         category: 'planned' as const, // Default to planned for suggestions
-        notes: suggestionData.notes,
+        description: suggestionData.description ?? '',
+        notes: suggestionData.notes ?? '',
         rating: suggestionData.rating,
         format: suggestionData.format,
         percentage: 0, // Default for planned items
@@ -142,6 +194,7 @@ export default function AddEditModal({
         isAllTime: false,
       };
       setFormData(suggestionFormData);
+      syncPickerControlsFromISO(suggestionFormData.completedDate);
     } else {
       // Creating new item - use default settings
       const newFormData = {
@@ -149,6 +202,7 @@ export default function AddEditModal({
         author: '',
         publicationYear: new Date().getFullYear(),
         category: 'completed' as const,
+        description: '',
         notes: '',
         rating: 0,
         format: isBook ? settings.defaultBookFormat : settings.defaultMovieFormat,
@@ -158,8 +212,50 @@ export default function AddEditModal({
         isAllTime: false,
       };
       setFormData(newFormData);
+      syncPickerControlsFromISO(newFormData.completedDate);
     }
-  }, [editingItem, isBook, visible, settings, settingsLoading, suggestionData]);
+  }, [
+    editingItem,
+    isBook,
+    visible,
+    settings,
+    settingsLoading,
+    suggestionData,
+    syncPickerControlsFromISO,
+    currentMonth,
+    currentYear,
+    currentDay,
+  ]);
+
+  // Scroll each column so the highlighted row sits in view (matches "Selected:" line).
+  useEffect(() => {
+    if (!visible || formData.category !== 'completed') return;
+    let cancelled = false;
+    const scroll = () => {
+      if (cancelled) return;
+      const pad = DATE_PICKER_VIEWPORT_HEIGHT / 2 - DATE_PICKER_ROW_HEIGHT / 2;
+      monthScrollRef.current?.scrollTo({
+        y: Math.max(0, (selectedMonth - 1) * DATE_PICKER_ROW_HEIGHT - pad),
+        animated: false,
+      });
+      dayScrollRef.current?.scrollTo({
+        y: Math.max(0, (selectedDay - 1) * DATE_PICKER_ROW_HEIGHT - pad),
+        animated: false,
+      });
+      const yi = yearOptions.indexOf(selectedYear);
+      if (yi >= 0) {
+        yearScrollRef.current?.scrollTo({
+          y: Math.max(0, yi * DATE_PICKER_ROW_HEIGHT - pad),
+          animated: false,
+        });
+      }
+    };
+    const id = requestAnimationFrame(scroll);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [visible, selectedMonth, selectedDay, selectedYear, formData.category, yearOptions]);
 
   // Reset search state when modal opens/closes
   useEffect(() => {
@@ -268,6 +364,85 @@ export default function AddEditModal({
     }
   };
 
+  const llmAssistEnabled =
+    features.canUseLLM && ENABLE_LLM_ASSIST && Boolean(LLM_PROXY_BASE_URL);
+
+  const handleLLMItemDraft = async () => {
+    if (!llmAssistEnabled || !LLM_PROXY_BASE_URL) {
+      Alert.alert('AI Assist Unavailable', 'AI drafting is unavailable in this build.');
+      return;
+    }
+
+    const hasInput =
+      formData.title.trim() ||
+      formData.author.trim() ||
+      formData.description.trim() ||
+      formData.notes.trim();
+    if (!hasInput) {
+      Alert.alert(
+        'Add Some Context',
+        'Enter a title, author/director, description, or notes before using AI draft.'
+      );
+      return;
+    }
+
+    setIsLLMDraftLoading(true);
+    setLlmStatusMessage(null);
+
+    try {
+      const response = await fetch(`${LLM_PROXY_BASE_URL}/llm/item-draft`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Subscription-Tier': 'premium',
+          'X-App-Feature': 'item_draft',
+        },
+        body: JSON.stringify({
+          mediaType: isBook ? 'book' : 'movie',
+          title: formData.title,
+          author: formData.author,
+          description: formData.description,
+          notes: formData.notes,
+        }),
+      });
+
+      if (!response.ok) {
+        let details = '';
+        try {
+          const errPayload = await response.json();
+          details = typeof errPayload?.message === 'string' ? `: ${errPayload.message}` : '';
+        } catch {
+          // Ignore payload parsing errors; status code still useful.
+        }
+        throw new Error(`AI draft failed (${response.status})${details}`);
+      }
+
+      const payload = await response.json();
+      const draft = payload?.draft ?? {};
+
+      setFormData((prev) => ({
+        ...prev,
+        title: typeof draft.title === 'string' && draft.title.trim() ? draft.title : prev.title,
+        author: typeof draft.author === 'string' && draft.author.trim() ? draft.author : prev.author,
+        publicationYear:
+          typeof draft.publicationYear === 'number' && draft.publicationYear > 0
+            ? draft.publicationYear
+            : prev.publicationYear,
+        notes: typeof draft.notes === 'string' && draft.notes.trim() ? draft.notes : prev.notes,
+      }));
+
+      if (typeof payload?.remaining_actions === 'number') {
+        setLlmStatusMessage(`AI actions remaining this period: ${payload.remaining_actions}`);
+      } else {
+        setLlmStatusMessage('AI draft applied.');
+      }
+    } catch (error) {
+      Alert.alert('AI Draft Failed', error instanceof Error ? error.message : 'Try again later.');
+    } finally {
+      setIsLLMDraftLoading(false);
+    }
+  };
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
 
@@ -345,7 +520,8 @@ export default function AddEditModal({
       author: result.author,
       publicationYear: result.publicationYear || new Date().getFullYear(),
       rating: result.rating ? Math.round(result.rating) : 0,
-      notes: result.description ? result.description.substring(0, 200) + '...' : '',
+      description: result.description?.trim() || '',
+      notes: '',
       // Keep the current default format and source
       format: isBook ? settings.defaultBookFormat : settings.defaultMovieFormat,
       source: isBook ? settings.defaultBookSource : settings.defaultMovieSource,
@@ -364,29 +540,42 @@ export default function AddEditModal({
 
   // Handle category change and automatically adjust percentage
   const handleCategoryChange = (newCategory: FormData['category']) => {
+    let completionDateToAlign: string | null = null;
+
     setFormData(prev => {
       const updates: Partial<FormData> = { category: newCategory };
-      
-      // When changing to completed, set percentage to 100 and clear progress
+
+      // When changing to completed, set percentage to 100 and ensure a completion date exists
       if (newCategory === 'completed') {
         updates.percentage = 100;
+        if (!prev.completedDate?.trim()) {
+          updates.completedDate = `${currentYear}-${pad2(currentMonth)}-${pad2(currentDay)}`;
+        }
       }
       // When changing from completed to other categories, set a default percentage if it's 100
       else if (prev.category === 'completed' && prev.percentage === 100) {
         if (newCategory === 'inProgress') {
-          updates.percentage = 50; // Default for in-progress items
+          updates.percentage = 50;
         } else if (newCategory === 'planned') {
-          updates.percentage = 0; // Default for planned items
+          updates.percentage = 0;
         } else if (newCategory === 'fails') {
-          updates.percentage = 25; // Default for abandoned items
+          updates.percentage = 25;
         } else {
-          updates.percentage = 100; // Keep 100 for all-time favorites
+          updates.percentage = 100;
         }
       }
-      
+
       const updatedData = { ...prev, ...updates };
+      if (newCategory === 'completed' && updatedData.completedDate?.trim()) {
+        completionDateToAlign = updatedData.completedDate.trim();
+      }
       return updatedData;
     });
+
+    if (completionDateToAlign) {
+      const iso = completionDateToAlign;
+      setTimeout(() => syncPickerControlsFromISO(iso), 0);
+    }
   };
 
   const handleSave = () => {
@@ -395,10 +584,11 @@ export default function AddEditModal({
       return;
     }
     
-    // Ensure completed items have 100% progress
+    // Ensure completed items have 100% progress; all-time list items are always favorites
     const finalFormData = {
       ...formData,
-      percentage: formData.category === 'completed' ? 100 : formData.percentage
+      percentage: formData.category === 'completed' ? 100 : formData.percentage,
+      ...(formData.category === 'allTime' ? { isAllTime: true } : {}),
     };
     
     AccessibilityInfo.announceForAccessibility(
@@ -572,6 +762,9 @@ export default function AddEditModal({
           )}
         </TouchableOpacity>
       </View>
+      {llmStatusMessage && (
+        <Text style={[styles.llmStatusText, isDark && styles.darkSecondaryText]}>{llmStatusMessage}</Text>
+      )}
 
       {searchError && (
         <View style={styles.errorContainer}>
@@ -677,6 +870,24 @@ export default function AddEditModal({
               <Text style={[styles.dividerText, isDark && styles.darkSecondaryText]}>or enter manually</Text>
               <View style={[styles.dividerLine, isDark && styles.darkDividerLine]} />
             </View>
+            {llmAssistEnabled && (
+              <TouchableOpacity
+                style={[styles.llmDraftButton, { borderColor: primaryColor }]}
+                onPress={handleLLMItemDraft}
+                disabled={isLLMDraftLoading}
+                accessibilityRole="button"
+                accessibilityLabel="AI draft item details"
+                accessibilityHint="Use premium AI to complete item details"
+              >
+                {isLLMDraftLoading ? (
+                  <ActivityIndicator size="small" color={primaryColor} />
+                ) : (
+                  <Text style={[styles.llmButtonText, { color: primaryColor }]}>
+                    AI Draft Item Details
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
           </>
         )}
 
@@ -844,7 +1055,11 @@ export default function AddEditModal({
               {/* Month Picker */}
               <View style={[styles.datePickerColumn, styles.halfWidth]}>
                 <Text style={[styles.datePickerLabel, isDark && styles.darkLabel]}>Month</Text>
-                <ScrollView style={styles.datePickerScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  ref={monthScrollRef}
+                  style={styles.datePickerScroll}
+                  showsVerticalScrollIndicator={false}
+                >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
                     <TouchableOpacity
                       key={month}
@@ -870,7 +1085,11 @@ export default function AddEditModal({
               {/* Day Picker */}
               <View style={[styles.datePickerColumn, styles.halfWidth]}>
                 <Text style={[styles.datePickerLabel, isDark && styles.darkLabel]}>Day</Text>
-                <ScrollView style={styles.datePickerScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  ref={dayScrollRef}
+                  style={styles.datePickerScroll}
+                  showsVerticalScrollIndicator={false}
+                >
                   {Array.from({ length: getDaysInMonth(selectedYear, selectedMonth) }, (_, i) => i + 1).map(day => (
                     <TouchableOpacity
                       key={day}
@@ -896,8 +1115,12 @@ export default function AddEditModal({
               {/* Year Picker */}
               <View style={[styles.datePickerColumn, styles.halfWidth]}>
                 <Text style={[styles.datePickerLabel, isDark && styles.darkLabel]}>Year</Text>
-                <ScrollView style={styles.datePickerScroll} showsVerticalScrollIndicator={false}>
-                  {Array.from({ length: 10 }, (_, i) => currentYear - 5 + i).map(year => (
+                <ScrollView
+                  ref={yearScrollRef}
+                  style={styles.datePickerScroll}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {yearOptions.map(year => (
                     <TouchableOpacity
                       key={year}
                       style={[
@@ -926,6 +1149,21 @@ export default function AddEditModal({
         )}
 
         {renderStarRating()}
+
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, isDark && styles.darkLabel]}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.textArea, isDark && styles.darkInput]}
+            value={formData.description}
+            onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
+            placeholder="Synopsis or summary from search (optional)"
+            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+            multiline
+            numberOfLines={3}
+            accessibilityLabel="Description"
+            accessibilityHint="Catalog or synopsis text, often filled when you pick a search result"
+          />
+        </View>
 
         <View style={styles.inputGroup}>
           <Text style={[styles.label, isDark && styles.darkLabel]}>Notes</Text>
@@ -1064,10 +1302,10 @@ export default function AddEditModal({
     <UpgradeModal
       visible={showUpgradeModal}
       onClose={() => setShowUpgradeModal(false)}
-      onSelectPlan={async (plan) => {
+      onSelectPlan={async (tier) => {
         try {
-          console.log(`💳 User selected ${plan} plan from AddEditModal`);
-          await upgradeToPremium();
+          console.log(`💳 User selected ${tier} tier from AddEditModal`);
+          await subscribeToTier(tier);
           setShowUpgradeModal(false);
           console.log('✅ Upgrade completed, closing modal');
         } catch (error) {
@@ -1371,6 +1609,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  llmDraftButton: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  llmButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+  },
+  llmStatusText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    marginTop: 8,
+    textAlign: 'center',
   },
   errorContainer: {
     paddingHorizontal: 20,

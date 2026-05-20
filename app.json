@@ -2,7 +2,7 @@
   "expo": {
     "name": "FiftyList",
     "slug": "bolt-expo-nativewind",
-    "version": "1.5.0",
+    "version": "1.5.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "fiftylist",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chrisgunn.fiftylist",
-              "buildNumber": "15",
+      "buildNumber": "19",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "This app may access your camera for features provided by third-party libraries. The camera is not used unless you choose a feature that requires it.",
@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.chrisgunn.fiftylist",
-      "versionCode": 15,
+      "versionCode": 19,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#D6B588"

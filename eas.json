@@ -10,12 +10,22 @@
     "preview": {
       "distribution": "internal",
       "ios": {
-        "simulator": true
+        "simulator": true,
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     },
     "production": {
+      "env": {
+        "EXPO_PUBLIC_ENABLE_LLM_ASSIST": "true",
+        "EXPO_PUBLIC_LLM_PROXY_BASE_URL": "https://fiftylist-llm-proxy.cagunn.workers.dev",
+        "EXPO_PUBLIC_REVENUECAT_ENTRY_ENTITLEMENT_ID": "entry",
+        "EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT_ID": "premium",
+        "EXPO_PUBLIC_REVENUECAT_ENTRY_PACKAGE_ID": "entry_monthly",
+        "EXPO_PUBLIC_REVENUECAT_PREMIUM_PACKAGE_ID": "premium_monthly"
+      },
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     }
   },

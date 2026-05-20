@@ -32,8 +32,8 @@ import { useSubscription } from '@/hooks/useSubscription';
 import SubscriptionStatusCard from './SubscriptionStatusCard';
 import UpgradeModal from './UpgradeModal';
 import { useOnboarding } from '@/hooks/OnboardingContext';
-import AppSettingsModal from './AppSettingsModal';
-import DismissedSuggestionsModal from './DismissedSuggestionsModal';
+import { AppSettingsPanel } from './AppSettingsModal';
+import { DismissedSuggestionsPanel } from './DismissedSuggestionsModal';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -61,7 +61,7 @@ export default function SettingsModal({
   const { resetFirstLaunch } = useFirstLaunch();
   const { resetInterests } = useUserInterests();
   const { retakeOnboarding } = useOnboarding();
-  const { subscription, features, upgradeToPremium, startFreeTrial } = useSubscription();
+  const { subscription, features, subscribeToTier, restorePurchases, isRevenueCatReady } = useSubscription();
 
   const handleContactPress = () => {
     const email = 'support@fiftylist.app';
@@ -159,6 +159,19 @@ export default function SettingsModal({
     onClose();
   };
 
+  /** One level back inside the settings sheet (Android back / consistent UX). */
+  const handleSheetBack = () => {
+    if (showAbout) {
+      setShowAbout(false);
+    } else if (showAppSettings) {
+      setShowAppSettings(false);
+    } else if (showDismissedSuggestions) {
+      setShowDismissedSuggestions(false);
+    } else {
+      handleMainModalClose();
+    }
+  };
+
   const SettingItem = ({ 
     icon: Icon, 
     title, 
@@ -216,17 +229,59 @@ export default function SettingsModal({
     </Text>
   );
 
+  const settingsSheetVisible = visible && !showUpgradeModal;
+
   return (
     <>
-      {/* Main Settings Modal */}
+      {/* Single sheet: swap sub-screens in-place (avoids closing + reopening a second modal). */}
       <Modal
-        visible={visible && !showAppSettings && !showAbout && !showDismissedSuggestions && !showUpgradeModal}
+        visible={settingsSheetVisible}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={handleMainModalClose}
+        onRequestClose={handleSheetBack}
       >
+        {showAbout ? (
+          <View style={[styles.container, isDark && styles.darkContainer]}>
+            <View style={[styles.header, isDark && styles.darkHeader]}>
+              <Text style={[styles.title, isDark && styles.darkText]}>About FiftyList</Text>
+              <TouchableOpacity
+                onPress={() => setShowAbout(false)}
+                style={styles.closeButton}
+                accessibilityRole="button"
+                accessibilityLabel="Back to Settings"
+              >
+                <X size={24} color={isDark ? '#9CA3AF' : '#6B7280'} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+              <Text style={[styles.aboutText, isDark && styles.darkText]}>
+                <Text style={styles.aboutBold}>FiftyList</Text> is your personal companion for tracking books and movies. Set yearly goals, organize your lists, and discover your reading and watching patterns.
+              </Text>
+              <Text style={[styles.aboutSubheading, isDark && styles.darkText]}>Features:</Text>
+              <Text style={[styles.aboutText, isDark && styles.darkText]}>
+                • Track completed, in-progress, planned, and favorite items{'\n'}
+                • Set and monitor yearly goals{'\n'}
+                • Detailed statistics and progress tracking{'\n'}
+                • Export and import your data{'\n'}
+                • Beautiful, intuitive interface{'\n'}
+                • Complete privacy - all data stays on your device
+              </Text>
+              <Text style={[styles.aboutSubheading, isDark && styles.darkText]}>Privacy First:</Text>
+              <Text style={[styles.aboutText, isDark && styles.darkText]}>
+                Your data never leaves your device. We don't collect, store, or share any personal information. Your reading and watching habits remain completely private.
+              </Text>
+              <View style={styles.aboutVersion}>
+                <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>Version 1.0.0</Text>
+                <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>Built with React Native & Expo</Text>
+              </View>
+            </ScrollView>
+          </View>
+        ) : showAppSettings ? (
+          <AppSettingsPanel onClose={handleAppSettingsClose} isDark={isDark} />
+        ) : showDismissedSuggestions ? (
+          <DismissedSuggestionsPanel onClose={handleDismissedSuggestionsClose} isDark={isDark} />
+        ) : (
         <View style={[styles.container, isDark && styles.darkContainer]}>
-          {/* Header */}
           <View style={[styles.header, isDark && styles.darkHeader]}>
             <Text style={[styles.title, isDark && styles.darkText]}>
               Settings
@@ -248,6 +303,28 @@ export default function SettingsModal({
               }}
               isDark={isDark}
             />
+            <Text style={[styles.subscriptionDebugText, isDark && styles.darkTertiaryText]}>
+              Billing status: {isRevenueCatReady ? 'RevenueCat configured' : 'RevenueCat not configured'} ·
+              {' '}Tier: {subscription?.tier ?? 'none'}
+            </Text>
+            {isRevenueCatReady && (
+              <View style={[styles.section, isDark && styles.darkSection, styles.restoreSection]}>
+                <SettingItem
+                  icon={RotateCcw}
+                  title="Restore Purchases"
+                  subtitle="Recover premium access on this device"
+                  onPress={async () => {
+                    try {
+                      await restorePurchases();
+                      Alert.alert('Restore Complete', 'Your purchase status has been refreshed.');
+                    } catch {
+                      Alert.alert('Restore Failed', 'Unable to restore purchases right now.');
+                    }
+                  }}
+                  iconColor="#6366F1"
+                />
+              </View>
+            )}
 
             {/* App Settings Section */}
             <SectionHeader title="App Settings" />
@@ -397,79 +474,8 @@ export default function SettingsModal({
             </View>
           </ScrollView>
         </View>
+        )}
       </Modal>
-
-      {/* About Modal */}
-      <Modal
-        visible={visible && showAbout && !showAppSettings && !showDismissedSuggestions}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowAbout(false)}
-      >
-        <View style={styles.aboutOverlay}>
-          <View style={[styles.aboutModal, isDark && styles.darkAboutModal]}>
-            <View style={styles.aboutHeader}>
-              <Text style={[styles.aboutTitle, isDark && styles.darkText]}>
-                About FiftyList
-              </Text>
-              <TouchableOpacity 
-                onPress={() => setShowAbout(false)}
-                style={styles.aboutCloseButton}
-              >
-                <X size={20} color={isDark ? "#9CA3AF" : "#6B7280"} />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.aboutContent} showsVerticalScrollIndicator={false}>
-              <Text style={[styles.aboutText, isDark && styles.darkText]}>
-                <Text style={styles.aboutBold}>FiftyList</Text> is your personal companion for tracking books and movies. Set yearly goals, organize your lists, and discover your reading and watching patterns.
-              </Text>
-              
-              <Text style={[styles.aboutSubheading, isDark && styles.darkText]}>
-                Features:
-              </Text>
-              <Text style={[styles.aboutText, isDark && styles.darkText]}>
-                • Track completed, in-progress, planned, and favorite items{'\n'}
-                • Set and monitor yearly goals{'\n'}
-                • Detailed statistics and progress tracking{'\n'}
-                • Export and import your data{'\n'}
-                • Beautiful, intuitive interface{'\n'}
-                • Complete privacy - all data stays on your device
-              </Text>
-              
-              <Text style={[styles.aboutSubheading, isDark && styles.darkText]}>
-                Privacy First:
-              </Text>
-              <Text style={[styles.aboutText, isDark && styles.darkText]}>
-                Your data never leaves your device. We don't collect, store, or share any personal information. Your reading and watching habits remain completely private.
-              </Text>
-              
-              <View style={styles.aboutVersion}>
-                <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>
-                  Version 1.0.0
-                </Text>
-                <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>
-                  Built with React Native & Expo
-                </Text>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* App Settings Modal - Now properly integrated */}
-      <AppSettingsModal
-        visible={visible && showAppSettings && !showAbout && !showDismissedSuggestions}
-        onClose={handleAppSettingsClose}
-        isDark={isDark}
-      />
-
-      {/* Dismissed Suggestions Modal */}
-      <DismissedSuggestionsModal
-        visible={visible && showDismissedSuggestions && !showAbout && !showAppSettings}
-        onClose={handleDismissedSuggestionsClose}
-        isDark={isDark}
-      />
 
       {/* Upgrade Modal */}
       <UpgradeModal
@@ -478,14 +484,10 @@ export default function SettingsModal({
           console.log('❌ Closing upgrade modal');
           setShowUpgradeModal(false);
         }}
-        onSelectPlan={async (plan) => {
+        onSelectPlan={async (tier) => {
           try {
-            console.log(`💳 User selected ${plan} plan`);
-            if (plan === 'yearly') {
-              await upgradeToPremium();
-            } else {
-              await upgradeToPremium(); // For now, both use the same function
-            }
+            console.log(`💳 User selected ${tier} tier`);
+            await subscribeToTier(tier);
             setShowUpgradeModal(false);
             console.log('✅ Upgrade completed successfully');
           } catch (error) {
@@ -556,6 +558,9 @@ const styles = StyleSheet.create({
   darkSection: {
     backgroundColor: '#1F2937',
   },
+  restoreSection: {
+    marginTop: 8,
+  },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -622,6 +627,13 @@ const styles = StyleSheet.create({
   },
   darkTertiaryText: {
     color: '#6B7280',
+  },
+  subscriptionDebugText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#6B7280',
+    marginTop: 8,
+    marginHorizontal: 4,
   },
   // About Modal Styles
   aboutOverlay: {

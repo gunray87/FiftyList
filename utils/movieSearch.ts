@@ -1,8 +1,11 @@
 // Movie search utility using TMDB API and hard-coded data
 // TMDB API: Free tier with high request limits
 
-// Securely load API key from environment variables
-const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
+import { getTmdbApiKey, TMDB_BASE_URL } from './tmdbConfig';
+// Complete movie database from suggestions (500+ titles)
+import { COMPREHENSIVE_MOVIE_DATA } from '../app/(tabs)/suggestions';
+
+const TMDB_API_KEY = getTmdbApiKey();
 
 export interface MovieSearchResult {
   id: string;
@@ -14,10 +17,6 @@ export interface MovieSearchResult {
   rating: number;
   source: 'tmdb' | 'hardcoded' | 'fallback';
 }
-
-// Import the complete movie database from suggestions.tsx
-// This contains over 500 movies - much more comprehensive than the small local array
-import { COMPREHENSIVE_MOVIE_DATA } from '../app/(tabs)/suggestions';
 
 // Search TMDB API for movies (free tier: 1000 requests/day)
 const searchOMDBMovies = async (query: string): Promise<MovieSearchResult[]> => {
@@ -32,7 +31,7 @@ const searchOMDBMovies = async (query: string): Promise<MovieSearchResult[]> => 
 
     // TMDB API - free tier with 1000 requests per day
     const response = await fetch(
-      `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`
+      `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`
     );
     
     if (!response.ok) {
@@ -203,7 +202,7 @@ export const getMovieById = async (id: string): Promise<MovieSearchResult | null
 
       const tmdbId = id.replace('tmdb-', '');
       const response = await fetch(
-        `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`
+        `${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`
       );
       
       if (response.ok) {

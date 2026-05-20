@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BookData, MovieData, Book, Movie } from '@/types';
+import { BookData, MovieData, Book, Movie, ExportOptions } from '@/types';
 import {
   logBookAdded,
   logBookCompleted,
@@ -11,6 +11,7 @@ import {
   logMovieMoved,
   logMovieRated
 } from '@/utils/activityLogger';
+import { runStoppedRecoveryAlert } from '@/utils/llmStoppedRecovery';
 
 const initialBooks: BookData = {
   completed: [],
@@ -33,6 +34,42 @@ const BOOKS_STORAGE_KEY = 'fiftylist_books_data';
 const MOVIES_STORAGE_KEY = 'fiftylist_movies_data';
 const GOALS_STORAGE_KEY = 'fiftylist_goals_data';
 
+/** Merge by id: later entries win. Preserves in-memory items not yet on disk. */
+function mergeById<T extends { id: number }>(a: T[] = [], b: T[] = []): T[] {
+  const map = new Map<number, T>();
+  for (const item of a) {
+    if (item && typeof item.id === 'number' && !Number.isNaN(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  for (const item of b) {
+    if (item && typeof item.id === 'number' && !Number.isNaN(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function mergeBookData(loaded: BookData, current: BookData): BookData {
+  return {
+    completed: mergeById(loaded.completed, current.completed),
+    inProgress: mergeById(loaded.inProgress, current.inProgress),
+    planned: mergeById(loaded.planned, current.planned),
+    fails: mergeById(loaded.fails, current.fails),
+    allTime: mergeById(loaded.allTime, current.allTime),
+  };
+}
+
+function mergeMovieData(loaded: MovieData, current: MovieData): MovieData {
+  return {
+    completed: mergeById(loaded.completed, current.completed),
+    inProgress: mergeById(loaded.inProgress, current.inProgress),
+    planned: mergeById(loaded.planned, current.planned),
+    fails: mergeById(loaded.fails, current.fails),
+    allTime: mergeById(loaded.allTime, current.allTime),
+  };
+}
+
 interface DataStoreContextType {
   books: BookData;
   movies: MovieData;
@@ -49,7 +86,7 @@ interface DataStoreContextType {
   deleteMovie: (movieId: number, category: keyof MovieData) => void;
   reorderMovies: (category: keyof MovieData, fromIndex: number, toIndex: number) => void;
   importItems: (importedBooks: Omit<Book, 'id'>[], importedMovies: Omit<Movie, 'id'>[]) => void;
-  generateComprehensiveExport: () => string;
+  generateComprehensiveExport: (options?: ExportOptions) => string;
   forceUpdate: number;
 }
 
@@ -95,20 +132,24 @@ const DataStoreContext = createContext<DataStoreContextType | undefined>(undefin
 export function DataStoreProvider({ children }: { children: ReactNode }) {
   const [books, setBooks] = useState<BookData>(initialBooks);
   const [movies, setMovies] = useState<MovieData>(initialMovies);
+  const booksRef = useRef(books);
+  const moviesRef = useRef(movies);
+  booksRef.current = books;
+  moviesRef.current = movies;
   const [bookGoal, setBookGoal] = useState(50);
   const [movieGoal, setMovieGoal] = useState(50);
   const [forceUpdate, setForceUpdate] = useState(0);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // Data persistence functions with encryption
+  // Data persistence functions (local device storage)
   const saveBooksToStorage = async (booksData: BookData) => {
     try {
       // Save books data to storage
       await AsyncStorage.setItem(BOOKS_STORAGE_KEY, JSON.stringify(booksData));
-      console.log('💾 Books data saved to secure storage');
+      console.log('💾 Books data saved to local storage');
     } catch (error) {
       console.error('❌ Error saving books to storage:', error);
-      // Fallback to regular storage if secure storage fails
+      // Retry once for transient storage failures
       try {
         await AsyncStorage.setItem(BOOKS_STORAGE_KEY, JSON.stringify(booksData));
       } catch (fallbackError) {
@@ -121,10 +162,10 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     try {
       // Save movies data to storage
       await AsyncStorage.setItem(MOVIES_STORAGE_KEY, JSON.stringify(moviesData));
-      console.log('💾 Movies data saved to secure storage');
+      console.log('💾 Movies data saved to local storage');
     } catch (error) {
       console.error('❌ Error saving movies to storage:', error);
-      // Fallback to regular storage if secure storage fails
+      // Retry once for transient storage failures
       try {
         await AsyncStorage.setItem(MOVIES_STORAGE_KEY, JSON.stringify(moviesData));
       } catch (fallbackError) {
@@ -154,16 +195,17 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       const booksData = await AsyncStorage.getItem(BOOKS_STORAGE_KEY);
       if (booksData) {
         try {
-          const parsedBooks = JSON.parse(booksData);
-          setBooks(parsedBooks);
-          console.log('📚 Loaded books data from secure storage');
+          const parsedBooks = JSON.parse(booksData) as BookData;
+          // Merge with current state so items added before hydration finishes are not wiped
+          setBooks((current) => mergeBookData(parsedBooks, current));
+          console.log('📚 Loaded books data from local storage');
         } catch (parseError) {
           console.error('❌ Error parsing books data:', parseError);
-          // Try fallback to regular storage
+          // Retry read once for transient storage failures
           const fallbackData = await AsyncStorage.getItem(BOOKS_STORAGE_KEY);
           if (fallbackData) {
-            const parsedBooks = JSON.parse(fallbackData);
-            setBooks(parsedBooks);
+            const parsedBooks = JSON.parse(fallbackData) as BookData;
+            setBooks((current) => mergeBookData(parsedBooks, current));
           }
         }
       }
@@ -172,21 +214,21 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       const moviesData = await AsyncStorage.getItem(MOVIES_STORAGE_KEY);
       if (moviesData) {
         try {
-          const parsedMovies = JSON.parse(moviesData);
-          setMovies(parsedMovies);
-          console.log('🎬 Loaded movies data from secure storage');
+          const parsedMovies = JSON.parse(moviesData) as MovieData;
+          setMovies((current) => mergeMovieData(parsedMovies, current));
+          console.log('🎬 Loaded movies data from local storage');
         } catch (parseError) {
           console.error('❌ Error parsing movies data:', parseError);
-          // Try fallback to regular storage
+          // Retry read once for transient storage failures
           const fallbackData = await AsyncStorage.getItem(MOVIES_STORAGE_KEY);
           if (fallbackData) {
-            const parsedMovies = JSON.parse(fallbackData);
-            setMovies(parsedMovies);
+            const parsedMovies = JSON.parse(fallbackData) as MovieData;
+            setMovies((current) => mergeMovieData(parsedMovies, current));
           }
         }
       }
 
-      // Load goals data (not encrypted as it's not sensitive)
+      // Load goals data from local storage
       const goalsData = await AsyncStorage.getItem(GOALS_STORAGE_KEY);
       if (goalsData) {
         try {
@@ -355,6 +397,12 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       
       console.log('📚 New books state after addition:', newBooks);
       console.log(`📚 ${newBook.category} books count: ${(newBooks[newBook.category] || []).length}`);
+
+      if (newBook.category === 'fails') {
+        queueMicrotask(() =>
+          void runStoppedRecoveryAlert('book', newBook, newBooks, moviesRef.current)
+        );
+      }
       
       // Trigger state change notification with error handling
       try {
@@ -382,7 +430,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
   const updateBook = (bookId: number, updatedBook: Book) => {
     console.log('📚 updateBook called for ID:', bookId);
-    
+    let recoveryBooks: BookData | null = null;
+
     setBooks(prevBooks => {
       // Find which category the book is currently in
       let oldCategory: keyof BookData | null = null;
@@ -412,6 +461,10 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       newBooks[updatedBook.category] = [...newBooks[updatedBook.category], updatedBook];
 
       console.log('📚 Book updated successfully');
+
+      if (updatedBook.category === 'fails' && oldCategory !== 'fails') {
+        recoveryBooks = newBooks;
+      }
       
       // Log activity based on what changed
       if (oldCategory !== updatedBook.category) {
@@ -435,16 +488,21 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       return newBooks;
     });
 
-    // Handle all-time favorites separately
+    if (recoveryBooks) {
+      queueMicrotask(() =>
+        void runStoppedRecoveryAlert('book', updatedBook, recoveryBooks!, moviesRef.current)
+      );
+    }
+
+    // Handle all-time favorites separately (only treat explicit false as "remove from all-time")
     setBooks(prevBooks => {
       if (updatedBook.isAllTime && updatedBook.category !== 'allTime') {
-        // Add to all-time if marked as favorite and not already in all-time category
         return {
           ...prevBooks,
           allTime: [...prevBooks.allTime.filter(item => item.id !== updatedBook.id), { ...updatedBook, isAllTime: true }]
         };
-      } else if (!updatedBook.isAllTime) {
-        // Remove from all-time if no longer marked as favorite
+      }
+      if (updatedBook.isAllTime === false) {
         return {
           ...prevBooks,
           allTime: prevBooks.allTime.filter(item => item.id !== updatedBook.id)
@@ -557,6 +615,12 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       
       console.log('🎬 New movies state after addition:', newMovies);
       console.log(`🎬 ${newMovie.category} movies count: ${(newMovies[newMovie.category] || []).length}`);
+
+      if (newMovie.category === 'fails') {
+        queueMicrotask(() =>
+          void runStoppedRecoveryAlert('movie', newMovie, booksRef.current, newMovies)
+        );
+      }
       
       // Trigger state change notification with error handling
       try {
@@ -584,7 +648,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
   const updateMovie = (movieId: number, updatedMovie: Movie) => {
     console.log('🎬 updateMovie called for ID:', movieId);
-    
+    let recoveryMovies: MovieData | null = null;
+
     setMovies(prevMovies => {
       // Find which category the movie is currently in
       let oldCategory: keyof MovieData | null = null;
@@ -614,6 +679,10 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       newMovies[updatedMovie.category] = [...newMovies[updatedMovie.category], updatedMovie];
 
       console.log('🎬 Movie updated successfully');
+
+      if (updatedMovie.category === 'fails' && oldCategory !== 'fails') {
+        recoveryMovies = newMovies;
+      }
       
       // Log activity based on what changed
       if (oldCategory !== updatedMovie.category) {
@@ -637,16 +706,21 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       return newMovies;
     });
 
-    // Handle all-time favorites separately
+    if (recoveryMovies) {
+      queueMicrotask(() =>
+        void runStoppedRecoveryAlert('movie', updatedMovie, booksRef.current, recoveryMovies!)
+      );
+    }
+
+    // Handle all-time favorites separately (only treat explicit false as "remove from all-time")
     setMovies(prevMovies => {
       if (updatedMovie.isAllTime && updatedMovie.category !== 'allTime') {
-        // Add to all-time if marked as favorite and not already in all-time category
         return {
           ...prevMovies,
           allTime: [...prevMovies.allTime.filter(item => item.id !== updatedMovie.id), { ...updatedMovie, isAllTime: true }]
         };
-      } else if (!updatedMovie.isAllTime) {
-        // Remove from all-time if no longer marked as favorite
+      }
+      if (updatedMovie.isAllTime === false) {
         return {
           ...prevMovies,
           allTime: prevMovies.allTime.filter(item => item.id !== updatedMovie.id)
@@ -750,10 +824,27 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
   };
 
   // Enhanced export function for comprehensive data export
-  const generateComprehensiveExport = () => {
+  const generateComprehensiveExport = (options?: ExportOptions) => {
     console.log('📤 Starting export generation...');
     
     try {
+      const exportOptions: ExportOptions = options ?? {
+        year: 'all',
+        sections: {
+          overview: true,
+          books: true,
+          movies: true,
+          yearlyBreakdown: true,
+        },
+        categories: {
+          completed: true,
+          inProgress: true,
+          planned: true,
+          fails: true,
+          allTime: true,
+        },
+      };
+
       // Validate data structure
       if (!books || !movies) {
         console.error('❌ Export error: books or movies data is undefined');
@@ -779,7 +870,70 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         minute: '2-digit' 
       });
 
-      console.log('📤 Export metadata:', { currentYear, exportDate, exportTime });
+      console.log('📤 Export metadata:', {
+        currentYear,
+        exportDate,
+        exportTime,
+        options: exportOptions,
+      });
+
+      const getItemYear = (item: Book | Movie, category: keyof BookData): number | null => {
+        if (!item || typeof item !== 'object') return null;
+        const dateByCategory =
+          category === 'completed'
+            ? item.completedDate
+            : category === 'inProgress'
+              ? item.dateStarted
+              : category === 'planned'
+                ? item.dateAdded
+                : category === 'fails'
+                  ? item.dateAbandoned
+                  : item.completedDate || item.dateAdded;
+
+        if (dateByCategory) {
+          const date = new Date(dateByCategory);
+          if (!Number.isNaN(date.getTime())) {
+            return date.getFullYear();
+          }
+        }
+
+        if (category === 'completed') {
+          const completionYear = getCompletionYear(item);
+          if (completionYear) return completionYear;
+        }
+
+        if (typeof item.publicationYear === 'number' && !Number.isNaN(item.publicationYear)) {
+          return item.publicationYear;
+        }
+        return null;
+      };
+
+      const matchesYear = (item: Book | Movie, category: keyof BookData): boolean => {
+        if (exportOptions.year === 'all') return true;
+        const itemYear = getItemYear(item, category);
+        return itemYear === exportOptions.year;
+      };
+
+      const filterCategoryItems = <T extends Book | Movie>(items: T[], category: keyof BookData): T[] => {
+        if (!exportOptions.categories[category]) return [];
+        return (items || []).filter((item) => item && typeof item === 'object' && matchesYear(item, category));
+      };
+
+      const filteredBooks: BookData = {
+        completed: filterCategoryItems(books.completed || [], 'completed'),
+        inProgress: filterCategoryItems(books.inProgress || [], 'inProgress'),
+        planned: filterCategoryItems(books.planned || [], 'planned'),
+        fails: filterCategoryItems(books.fails || [], 'fails'),
+        allTime: filterCategoryItems(books.allTime || [], 'allTime'),
+      };
+
+      const filteredMovies: MovieData = {
+        completed: filterCategoryItems(movies.completed || [], 'completed'),
+        inProgress: filterCategoryItems(movies.inProgress || [], 'inProgress'),
+        planned: filterCategoryItems(movies.planned || [], 'planned'),
+        fails: filterCategoryItems(movies.fails || [], 'fails'),
+        allTime: filterCategoryItems(movies.allTime || [], 'allTime'),
+      };
 
       // Helper function to format items
       const formatItem = (item: Book | Movie, index: number, isBook: boolean) => {
@@ -806,7 +960,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         }
         
         if (item.rating) {
-          itemText += ` ⭐ ${item.rating}/5 stars`;
+          itemText += ` — Rating: ${item.rating}/5`;
         }
         
         if (item.percentage && item.percentage < 100) {
@@ -845,7 +999,11 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         }
         
         if (item.isAllTime) {
-          itemText += ` 🏆 ALL-TIME FAVORITE`;
+          itemText += ` [All-time favorite]`;
+        }
+        
+        if (item.description) {
+          itemText += `\n   Description: "${item.description}"`;
         }
         
         if (item.notes) {
@@ -856,14 +1014,14 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       };
 
       // Calculate statistics using completion dates
-      const totalBooks = books ? Object.values(books).flat().length : 0;
-      const totalMovies = movies ? Object.values(movies).flat().length : 0;
-      const booksThisYear = books && books.completed && Array.isArray(books.completed) ? books.completed.filter(book => {
+      const totalBooks = filteredBooks ? Object.values(filteredBooks).flat().length : 0;
+      const totalMovies = filteredMovies ? Object.values(filteredMovies).flat().length : 0;
+      const booksThisYear = filteredBooks && filteredBooks.completed && Array.isArray(filteredBooks.completed) ? filteredBooks.completed.filter(book => {
         if (!book || typeof book !== 'object') return false;
         const completionYear = getCompletionYear(book);
         return completionYear === currentYear;
       }).length : 0;
-      const moviesThisYear = movies && movies.completed && Array.isArray(movies.completed) ? movies.completed.filter(movie => {
+      const moviesThisYear = filteredMovies && filteredMovies.completed && Array.isArray(filteredMovies.completed) ? filteredMovies.completed.filter(movie => {
         if (!movie || typeof movie !== 'object') return false;
         const completionYear = getCompletionYear(movie);
         return completionYear === currentYear;
@@ -881,8 +1039,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
       });
 
       // Calculate average ratings
-      const booksWithRatings = books && books.completed && Array.isArray(books.completed) ? books.completed.filter(book => book && book.rating && book.rating > 0) : [];
-      const moviesWithRatings = movies && movies.completed && Array.isArray(movies.completed) ? movies.completed.filter(movie => movie && movie.rating && movie.rating > 0) : [];
+      const booksWithRatings = filteredBooks && filteredBooks.completed && Array.isArray(filteredBooks.completed) ? filteredBooks.completed.filter(book => book && book.rating && book.rating > 0) : [];
+      const moviesWithRatings = filteredMovies && filteredMovies.completed && Array.isArray(filteredMovies.completed) ? filteredMovies.completed.filter(movie => movie && movie.rating && movie.rating > 0) : [];
       const avgBookRating = booksWithRatings.length > 0 
         ? (booksWithRatings.reduce((sum, book) => sum + (book.rating || 0), 0) / booksWithRatings.length).toFixed(1)
         : 'N/A';
@@ -891,47 +1049,59 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         : 'N/A';
 
       // Build comprehensive export text
-      let exportText = `📚🎬 MY COMPLETE READING & WATCHING LIST
+      const yearScopeLabel =
+        exportOptions.year === 'all'
+          ? 'All years'
+          : String(exportOptions.year);
+
+      let exportText = `FIFTYLIST
+MY COMPLETE READING & WATCHING LIST
 ═══════════════════════════════════════════════════════════
 
 Generated: ${exportDate} at ${exportTime}
-
-📊 OVERVIEW & STATISTICS
-═══════════════════════════════════════════════════════════
-
-📈 ${currentYear} GOALS & PROGRESS:
-• Books Goal: ${booksThisYear}/${bookGoal} (${bookProgress}%)
-• Movies Goal: ${moviesThisYear}/${movieGoal} (${movieProgress}%)
-• Combined Progress: ${booksThisYear + moviesThisYear}/${bookGoal + movieGoal} items
-
-📚 BOOK STATISTICS:
-• Total Books: ${totalBooks}
-• Completed: ${books.completed.length}
-• Currently Reading: ${books.inProgress.length}
-• Planned: ${books.planned.length}
-• Stopped/DNF: ${books.fails.length}
-• All-Time Favorites: ${books.allTime.length}
-• Average Rating: ${avgBookRating}/5 stars
-
-🎬 MOVIE STATISTICS:
-• Total Movies: ${totalMovies}
-• Completed: ${movies.completed.length}
-• Currently Watching: ${movies.inProgress.length}
-• Planned: ${movies.planned.length}
-• Stopped: ${movies.fails.length}
-• All-Time Favorites: ${movies.allTime.length}
-• Average Rating: ${avgMovieRating}/5 stars
+Year filter: ${yearScopeLabel}
 
 `;
 
+      if (exportOptions.sections.overview) {
+        exportText += `OVERVIEW & STATISTICS
+═══════════════════════════════════════════════════════════
+
+${currentYear} GOALS & PROGRESS
+• Books goal: ${booksThisYear}/${bookGoal} (${bookProgress}%)
+• Movies goal: ${moviesThisYear}/${movieGoal} (${movieProgress}%)
+• Combined: ${booksThisYear + moviesThisYear}/${bookGoal + movieGoal} items this year
+
+BOOK STATISTICS
+• Total books (all lists): ${totalBooks}
+• Completed: ${filteredBooks.completed.length}
+• Currently reading: ${filteredBooks.inProgress.length}
+• Planned: ${filteredBooks.planned.length}
+• Stopped / DNF: ${filteredBooks.fails.length}
+• All-time favorites: ${filteredBooks.allTime.length}
+• Average rating (completed with stars): ${avgBookRating}/5
+
+MOVIE STATISTICS
+• Total movies (all lists): ${totalMovies}
+• Completed: ${filteredMovies.completed.length}
+• Currently watching: ${filteredMovies.inProgress.length}
+• Planned: ${filteredMovies.planned.length}
+• Stopped: ${filteredMovies.fails.length}
+• All-time favorites: ${filteredMovies.allTime.length}
+• Average rating (completed with stars): ${avgMovieRating}/5
+
+`;
+      }
+
       // Add Books sections
-      exportText += `\n📚 BOOKS
+      if (exportOptions.sections.books) {
+        exportText += `\nBOOKS
 ═══════════════════════════════════════════════════════════\n\n`;
 
-      if (books && books.completed && Array.isArray(books.completed) && books.completed.length > 0) {
-        exportText += `✅ COMPLETED BOOKS (${books.completed.length})\n`;
+      if (filteredBooks.completed.length > 0) {
+        exportText += `COMPLETED BOOKS (${filteredBooks.completed.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        books.completed.forEach((book, index) => {
+        filteredBooks.completed.forEach((book, index) => {
           if (book && typeof book === 'object') {
             exportText += formatItem(book, index, true) + '\n';
           }
@@ -939,10 +1109,10 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (books && books.inProgress && Array.isArray(books.inProgress) && books.inProgress.length > 0) {
-        exportText += `📖 CURRENTLY READING (${books.inProgress.length})\n`;
+      if (filteredBooks.inProgress.length > 0) {
+        exportText += `CURRENTLY READING (${filteredBooks.inProgress.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        books.inProgress.forEach((book, index) => {
+        filteredBooks.inProgress.forEach((book, index) => {
           if (book && typeof book === 'object') {
             exportText += formatItem(book, index, true) + '\n';
           }
@@ -950,10 +1120,10 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (books && books.planned && Array.isArray(books.planned) && books.planned.length > 0) {
-        exportText += `📋 WANT TO READ (${books.planned.length})\n`;
+      if (filteredBooks.planned.length > 0) {
+        exportText += `WANT TO READ (${filteredBooks.planned.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        books.planned.forEach((book, index) => {
+        filteredBooks.planned.forEach((book, index) => {
           if (book && typeof book === 'object') {
             exportText += formatItem(book, index, true) + '\n';
           }
@@ -961,10 +1131,10 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (books && books.fails && Array.isArray(books.fails) && books.fails.length > 0) {
-        exportText += `❌ STOPPED/DNF BOOKS (${books.fails.length})\n`;
+      if (filteredBooks.fails.length > 0) {
+        exportText += `STOPPED / DNF BOOKS (${filteredBooks.fails.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        books.fails.forEach((book, index) => {
+        filteredBooks.fails.forEach((book, index) => {
           if (book && typeof book === 'object') {
             exportText += formatItem(book, index, true) + '\n';
           }
@@ -972,25 +1142,27 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (books && books.allTime && Array.isArray(books.allTime) && books.allTime.length > 0) {
-        exportText += `🏆 ALL-TIME FAVORITE BOOKS (${books.allTime.length})\n`;
+      if (filteredBooks.allTime.length > 0) {
+        exportText += `ALL-TIME FAVORITE BOOKS (${filteredBooks.allTime.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        books.allTime.forEach((book, index) => {
+        filteredBooks.allTime.forEach((book, index) => {
           if (book && typeof book === 'object') {
             exportText += formatItem(book, index, true) + '\n';
           }
         });
         exportText += '\n';
+      }
       }
 
       // Add Movies sections
-      exportText += `\n🎬 MOVIES
+      if (exportOptions.sections.movies) {
+        exportText += `\nMOVIES
 ═══════════════════════════════════════════════════════════\n\n`;
 
-      if (movies && movies.completed && Array.isArray(movies.completed) && movies.completed.length > 0) {
-        exportText += `✅ COMPLETED MOVIES (${movies.completed.length})\n`;
+      if (filteredMovies.completed.length > 0) {
+        exportText += `COMPLETED MOVIES (${filteredMovies.completed.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        movies.completed.forEach((movie, index) => {
+        filteredMovies.completed.forEach((movie, index) => {
           if (movie && typeof movie === 'object') {
             exportText += formatItem(movie, index, false) + '\n';
           }
@@ -998,10 +1170,10 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (movies && movies.inProgress && Array.isArray(movies.inProgress) && movies.inProgress.length > 0) {
-        exportText += `🎥 CURRENTLY WATCHING (${movies.inProgress.length})\n`;
+      if (filteredMovies.inProgress.length > 0) {
+        exportText += `CURRENTLY WATCHING (${filteredMovies.inProgress.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        movies.inProgress.forEach((movie, index) => {
+        filteredMovies.inProgress.forEach((movie, index) => {
           if (movie && typeof movie === 'object') {
             exportText += formatItem(movie, index, false) + '\n';
           }
@@ -1009,10 +1181,10 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (movies && movies.planned && Array.isArray(movies.planned) && movies.planned.length > 0) {
-        exportText += `📋 WANT TO WATCH (${movies.planned.length})\n`;
+      if (filteredMovies.planned.length > 0) {
+        exportText += `WANT TO WATCH (${filteredMovies.planned.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        movies.planned.forEach((movie, index) => {
+        filteredMovies.planned.forEach((movie, index) => {
           if (movie && typeof movie === 'object') {
             exportText += formatItem(movie, index, false) + '\n';
           }
@@ -1020,10 +1192,10 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (movies && movies.fails && Array.isArray(movies.fails) && movies.fails.length > 0) {
-        exportText += `❌ STOPPED MOVIES (${movies.fails.length})\n`;
+      if (filteredMovies.fails.length > 0) {
+        exportText += `STOPPED MOVIES (${filteredMovies.fails.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        movies.fails.forEach((movie, index) => {
+        filteredMovies.fails.forEach((movie, index) => {
           if (movie && typeof movie === 'object') {
             exportText += formatItem(movie, index, false) + '\n';
           }
@@ -1031,23 +1203,24 @@ Generated: ${exportDate} at ${exportTime}
         exportText += '\n';
       }
 
-      if (movies && movies.allTime && Array.isArray(movies.allTime) && movies.allTime.length > 0) {
-        exportText += `🏆 ALL-TIME FAVORITE MOVIES (${movies.allTime.length})\n`;
+      if (filteredMovies.allTime.length > 0) {
+        exportText += `ALL-TIME FAVORITE MOVIES (${filteredMovies.allTime.length})\n`;
         exportText += `${'─'.repeat(50)}\n`;
-        movies.allTime.forEach((movie, index) => {
+        filteredMovies.allTime.forEach((movie, index) => {
           if (movie && typeof movie === 'object') {
             exportText += formatItem(movie, index, false) + '\n';
           }
         });
         exportText += '\n';
+      }
       }
 
       // Add yearly breakdown using completion dates
       const yearlyBooks: { [year: number]: number } = {};
       const yearlyMovies: { [year: number]: number } = {};
       
-      if (books && books.completed && Array.isArray(books.completed)) {
-        books.completed.forEach(book => {
+      if (filteredBooks && filteredBooks.completed && Array.isArray(filteredBooks.completed)) {
+        filteredBooks.completed.forEach(book => {
           if (book && typeof book === 'object') {
             const completionYear = getCompletionYear(book);
             if (completionYear) {
@@ -1057,8 +1230,8 @@ Generated: ${exportDate} at ${exportTime}
         });
       }
       
-      if (movies && movies.completed && Array.isArray(movies.completed)) {
-        movies.completed.forEach(movie => {
+      if (filteredMovies && filteredMovies.completed && Array.isArray(filteredMovies.completed)) {
+        filteredMovies.completed.forEach(movie => {
           if (movie && typeof movie === 'object') {
             const completionYear = getCompletionYear(movie);
             if (completionYear) {
@@ -1068,8 +1241,8 @@ Generated: ${exportDate} at ${exportTime}
         });
       }
 
-      if (Object.keys(yearlyBooks || {}).length > 0 || Object.keys(yearlyMovies || {}).length > 0) {
-        exportText += `\n📅 YEARLY BREAKDOWN (by completion date)
+      if (exportOptions.sections.yearlyBreakdown && (Object.keys(yearlyBooks || {}).length > 0 || Object.keys(yearlyMovies || {}).length > 0)) {
+        exportText += `\nYEARLY BREAKDOWN (by completion date)
 ═══════════════════════════════════════════════════════════\n\n`;
         
         const allYears = new Set([...Object.keys(yearlyBooks || {}), ...Object.keys(yearlyMovies || {})]);
@@ -1099,7 +1272,7 @@ End of Export - Generated by FiftyList App
       console.error('❌ Error generating export:', error);
       
       // Return a basic export with error information
-      return `📚🎬 EXPORT ERROR
+      return `FIFTYLIST — EXPORT ERROR
 ═══════════════════════════════════════════════════════════
 
 An error occurred while generating the export:

@@ -6,6 +6,10 @@ export interface AppSettings {
   defaultMovieFormat: 'streaming' | 'theater' | 'bluray' | 'dvd';
   defaultBookSource: string;
   defaultMovieSource: string;
+  defaultBookListTab: 'completed' | 'inProgress' | 'planned' | 'fails' | 'allTime';
+  defaultMovieListTab: 'completed' | 'inProgress' | 'planned' | 'fails' | 'allTime';
+  defaultListSortOrder: 'newest' | 'oldest';
+  defaultListNumbering: 'highestTop' | 'lowestTop';
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -13,6 +17,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultMovieFormat: 'streaming',
   defaultBookSource: '',
   defaultMovieSource: '',
+  defaultBookListTab: 'completed',
+  defaultMovieListTab: 'completed',
+  defaultListSortOrder: 'newest',
+  defaultListNumbering: 'highestTop',
 };
 
 const SETTINGS_KEY = '@FiftyList:appSettings';

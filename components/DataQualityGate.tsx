@@ -83,7 +83,7 @@ const DataQualityUpgradePrompt: React.FC<DataQualityUpgradePromptProps> = ({
           title: "Get Smart Recommendations",
           description: "Premium users get AI-powered recommendations based on their reading history and preferences.",
           benefit: "Discover your next favorite book",
-          example: "Get personalized suggestions based on: Your reading history, Similar authors, Trending books"
+          example: "Get personalized suggestions based on: Your reading history, similar authors, and curated genre picks"
         };
     }
   };

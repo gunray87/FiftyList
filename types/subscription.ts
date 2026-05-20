@@ -1,9 +1,8 @@
 export interface SubscriptionTier {
-  id: 'free' | 'premium';
+  id: 'free' | 'entry' | 'premium';
   name: string;
   price: {
     monthly?: number;
-    yearly: number;
   };
   features: {
     unlimitedItems: boolean;
@@ -21,7 +20,7 @@ export interface SubscriptionTier {
 }
 
 export interface UserSubscription {
-  tier: 'free' | 'premium';
+  tier: 'free' | 'entry' | 'premium';
   status: 'active' | 'expired' | 'cancelled' | 'trial';
   expiresAt: Date;
   autoRenew: boolean;
@@ -33,18 +32,19 @@ export interface SubscriptionFeatures {
   canUseEnhancedSearch: boolean;
   canTrackPrices: boolean;
   canGetRecommendations: boolean;
+  canUseLLM: boolean;
   hasUnlimitedItems: boolean;
   hasPrioritySupport: boolean;
-  canSearchBooks: boolean; // New: Controls book API search access
+  canSearchBooks: boolean;
 }
 
 export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
   {
     id: 'free',
-    name: 'Basic',
-    price: { yearly: 3.99 },
+    name: 'No Subscription',
+    price: {},
     features: {
-      unlimitedItems: true,
+      unlimitedItems: false,
       enhancedSearch: false,
       movieSearch: false,
       priceTracking: false,
@@ -54,13 +54,31 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     apiProviders: [], // No API access for free tier
     limits: {
       apiCallsPerDay: 0, // No API calls allowed
-      searchProviders: [] // No search providers
+      searchProviders: []
+    }
+  },
+  {
+    id: 'entry',
+    name: 'Entry Utility',
+    price: { monthly: 2.99 },
+    features: {
+      unlimitedItems: true,
+      enhancedSearch: true,
+      movieSearch: true,
+      priceTracking: false,
+      advancedRecommendations: false,
+      prioritySupport: false,
+    },
+    apiProviders: ['google_books', 'tmdb', 'omdb'],
+    limits: {
+      apiCallsPerDay: 500,
+      searchProviders: ['google_books', 'tmdb', 'omdb']
     }
   },
   {
     id: 'premium',
     name: 'Premium',
-    price: { monthly: 2.99, yearly: 19.99 },
+    price: { monthly: 9.99 },
     features: {
       unlimitedItems: true,
       enhancedSearch: true,
@@ -88,6 +106,7 @@ export const getSubscriptionFeatures = (subscription: UserSubscription | null): 
       canUseEnhancedSearch: false,
       canTrackPrices: false,
       canGetRecommendations: false,
+      canUseLLM: false,
       hasUnlimitedItems: false,
       hasPrioritySupport: false,
       canSearchBooks: false,
@@ -101,22 +120,24 @@ export const getSubscriptionFeatures = (subscription: UserSubscription | null): 
       canUseEnhancedSearch: false,
       canTrackPrices: false,
       canGetRecommendations: false,
+      canUseLLM: false,
       hasUnlimitedItems: false,
       hasPrioritySupport: false,
       canSearchBooks: false,
     };
   }
 
-  // Free tier has NO API access at all
+  const isEntryOrPremium = subscription.tier === 'entry' || subscription.tier === 'premium';
   const isPremium = subscription.tier === 'premium';
 
   return {
-    canSearchMovies: isPremium && tier.features.movieSearch,
-    canUseEnhancedSearch: isPremium && tier.features.enhancedSearch,
+    canSearchMovies: isEntryOrPremium && tier.features.movieSearch,
+    canUseEnhancedSearch: isEntryOrPremium && tier.features.enhancedSearch,
     canTrackPrices: isPremium && tier.features.priceTracking,
     canGetRecommendations: isPremium && tier.features.advancedRecommendations,
+    canUseLLM: isPremium,
     hasUnlimitedItems: tier.features.unlimitedItems,
     hasPrioritySupport: isPremium && tier.features.prioritySupport,
-    canSearchBooks: isPremium, // Only premium can search via API
+    canSearchBooks: isEntryOrPremium,
   };
 };

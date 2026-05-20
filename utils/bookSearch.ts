@@ -1,9 +1,8 @@
 // Comprehensive book search utility
 // This file provides access to the comprehensive book database for search functionality
 
-// Import the complete book database from suggestions.tsx
-// This contains over 1000 books - much more comprehensive than the small local array
-import { COMPREHENSIVE_BOOK_DATA } from '../app/(tabs)/suggestions';
+import type { ComprehensiveCatalogBook } from '@/types/comprehensiveBookCatalog';
+import { COMPREHENSIVE_BOOK_DATA } from '@/data/comprehensiveBookCatalog';
 
 export interface BookSearchResult {
   id: string;
@@ -14,6 +13,11 @@ export interface BookSearchResult {
   thumbnail?: string | null;
   rating?: number;
   genres?: string[];
+  catalogId?: number;
+  fictionCategory?: string;
+  estimatedLength?: string;
+  dataConfidence?: string;
+  dataReason?: string;
 }
 
 // Note: API access requires Premium subscription
@@ -28,10 +32,11 @@ export const searchHardCodedBooks = (query: string): BookSearchResult[] => {
     const searchTerm = query.toLowerCase().trim();
     
     // Search through title, author, and genres with improved matching
-    const results = COMPREHENSIVE_BOOK_DATA.filter((book: any) => {
+    const results = COMPREHENSIVE_BOOK_DATA.filter((book: ComprehensiveCatalogBook) => {
       const titleLower = book.title.toLowerCase();
       const authorLower = book.author.toLowerCase();
       const descriptionLower = book.description ? book.description.toLowerCase() : '';
+      const categoryLower = (book.fictionCategory || '').toLowerCase();
       
       // Exact match
       const exactTitleMatch = titleLower.includes(searchTerm);
@@ -50,25 +55,44 @@ export const searchHardCodedBooks = (query: string): BookSearchResult[] => {
       );
       
       // Genre match
-      const genreMatch = book.genres && book.genres.some((genre: string) => 
-        genre.toLowerCase().includes(searchTerm) ||
-        searchWords.some(word => genre.toLowerCase().includes(word))
+      const genreMatch =
+        book.genres &&
+        book.genres.some(
+          (genre: string) =>
+            genre.toLowerCase().includes(searchTerm) ||
+            searchWords.some((word) => genre.toLowerCase().includes(word))
+        );
+
+      const categoryMatch =
+        categoryLower.includes(searchTerm) ||
+        searchWords.some((word) => categoryLower.includes(word));
+
+      return (
+        exactTitleMatch ||
+        exactAuthorMatch ||
+        exactDescriptionMatch ||
+        titleWordMatch ||
+        authorWordMatch ||
+        genreMatch ||
+        categoryMatch
       );
-      
-      return exactTitleMatch || exactAuthorMatch || exactDescriptionMatch || 
-             titleWordMatch || authorWordMatch || genreMatch;
     }).slice(0, 15); // Limit to 15 results
     
     // Convert to SearchResult format
-    const searchResults = results.map((book: any, index: number) => ({
-      id: `hardcoded-${book.title}-${book.author}-${index}`,
+    const searchResults = results.map((book: ComprehensiveCatalogBook, index: number) => ({
+      id: book.catalogId != null ? `catalog-${book.catalogId}` : `hardcoded-${book.title}-${book.author}-${index}`,
       title: book.title,
       author: book.author,
       publicationYear: book.year,
       description: book.description,
       thumbnail: null,
       rating: book.rating,
-      genres: book.genres
+      genres: book.genres,
+      catalogId: book.catalogId,
+      fictionCategory: book.fictionCategory,
+      estimatedLength: book.estimatedLength,
+      dataConfidence: book.dataConfidence,
+      dataReason: book.dataReason,
     }));
     
     console.log(`✅ Found ${searchResults.length} hard-coded book results for "${query}"`);
@@ -79,13 +103,15 @@ export const searchHardCodedBooks = (query: string): BookSearchResult[] => {
   }
 };
 
+const GOOGLE_BOOKS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY?.trim();
+
 // Search Google Books API for additional results
 const searchGoogleBooks = async (query: string): Promise<BookSearchResult[]> => {
   try {
     console.log(`🔍 Searching Google Books API for: "${query}"`);
-    
+    const keyParam = GOOGLE_BOOKS_API_KEY ? `&key=${encodeURIComponent(GOOGLE_BOOKS_API_KEY)}` : '';
     const response = await fetch(
-      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=10&orderBy=relevance`
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=10&orderBy=relevance${keyParam}`
     );
 
     if (!response.ok) {
@@ -154,24 +180,40 @@ export const searchBooksAPI = async (query: string): Promise<BookSearchResult[]>
   }
 };
 
+function catalogBookToSearchResult(id: string, book: ComprehensiveCatalogBook): BookSearchResult {
+  return {
+    id,
+    title: book.title,
+    author: book.author,
+    publicationYear: book.year,
+    description: book.description,
+    thumbnail: null,
+    rating: book.rating,
+    genres: book.genres,
+    catalogId: book.catalogId,
+    fictionCategory: book.fictionCategory,
+    estimatedLength: book.estimatedLength,
+    dataConfidence: book.dataConfidence,
+    dataReason: book.dataReason,
+  };
+}
+
 // Get book by ID (useful for getting specific book details)
 export const getBookById = (id: string): BookSearchResult | null => {
   try {
-    // Check hard-coded data
-    const bookTitle = id.replace('hardcoded-', '').split('-')[0]; // Get title part before first dash
-    const hardCodedBook = COMPREHENSIVE_BOOK_DATA.find((book: any) => book.title === bookTitle);
+    if (id.startsWith('catalog-')) {
+      const cid = Number(id.replace(/^catalog-/, ''));
+      if (!Number.isNaN(cid)) {
+        const byCatalog = COMPREHENSIVE_BOOK_DATA.find((b) => b.catalogId === cid);
+        if (byCatalog) return catalogBookToSearchResult(id, byCatalog);
+      }
+    }
+
+    const bookTitle = id.replace('hardcoded-', '').split('-')[0];
+    const hardCodedBook = COMPREHENSIVE_BOOK_DATA.find((book) => book.title === bookTitle);
     
     if (hardCodedBook) {
-      return {
-        id: id, // Keep the original ID with author and index
-        title: hardCodedBook.title,
-        author: hardCodedBook.author,
-        publicationYear: hardCodedBook.year,
-        description: hardCodedBook.description,
-        thumbnail: null,
-        rating: hardCodedBook.rating,
-        genres: hardCodedBook.genres
-      };
+      return catalogBookToSearchResult(id, hardCodedBook);
     }
     
     return null;

@@ -16,7 +16,9 @@ export default function SubscriptionStatusCard({
   onUpgradePress,
   isDark = false
 }: SubscriptionStatusCardProps) {
+  const tier = subscription?.tier ?? 'free';
   const isPremium = subscription?.tier === 'premium';
+  const isEntry = subscription?.tier === 'entry';
   const isTrial = subscription?.status === 'trial';
 
   return (
@@ -26,7 +28,7 @@ export default function SubscriptionStatusCard({
         <View style={styles.tierBadge}>
           {isPremium && <Crown size={16} color="#F59E0B" />}
           <Text style={[styles.tierName, isDark && styles.darkText]}>
-            {isPremium ? 'Premium' : 'Free Tier'}
+            {isPremium ? 'Premium Utility' : isEntry ? 'Entry Utility' : 'No Active Plan'}
           </Text>
         </View>
         {isTrial && (
@@ -57,6 +59,12 @@ export default function SubscriptionStatusCard({
           isDark={isDark}
         />
         <FeatureRow
+          icon={features.canUseLLM ? Check : X}
+          text="LLM Search & AI Item Creation"
+          enabled={features.canUseLLM}
+          isDark={isDark}
+        />
+        <FeatureRow
           icon={features.hasUnlimitedItems ? Check : X}
           text="Unlimited Items"
           enabled={features.hasUnlimitedItems}
@@ -64,16 +72,16 @@ export default function SubscriptionStatusCard({
         />
       </View>
 
-      {/* Local Database Info for Free Users */}
+      {/* Local Database Info for non-premium users */}
       {!isPremium && (
         <View style={styles.localDbInfo}>
           <Text style={[styles.localDbText, isDark && styles.darkSecondaryText]}>
-            📚 You have access to 1,000+ books and 500+ movies in our local database
+            📚 Entry tier includes local-first tracking and API search. Upgrade to Premium for LLM features.
           </Text>
         </View>
       )}
 
-      {/* Upgrade Button for Free Users */}
+      {/* Upgrade button for entry/non-subscribed users */}
       {!isPremium && (
         <TouchableOpacity
           style={styles.upgradeButton}
@@ -82,7 +90,7 @@ export default function SubscriptionStatusCard({
             onUpgradePress();
           }}
         >
-          <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
+          <Text style={styles.upgradeButtonText}>{tier === 'entry' ? 'Upgrade to Premium' : 'Choose a Plan'}</Text>
           <ChevronRight size={16} color="#FFFFFF" />
         </TouchableOpacity>
       )}

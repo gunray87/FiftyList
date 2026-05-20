@@ -1,0 +1,2179 @@
+type,title,author,year
+book,Into Thin Air,Jon Krakauer,1997
+book,The Emerald Mile,Kevin Fedarko,2013
+book,Endurance,Alfred Lansing,1959
+book,The River of Doubt,Candice Millard,2005
+book,Alone on the Wall,Alex Honnold,2015
+book,The Impossible Climb,Mark Synnott,2019
+book,Conquistadors of the Useless,Lionel Terray,1963
+book,The Wager,David Grann,2023
+book,K2: Life and Death on the World's Most Dangerous Mountain,Ed Viesturs,2009
+book,The Third Pole,Mark Synnott,2021
+book,Touching the Void,Joe Simpson,1988
+book,The Climb,Anatoli Boukreev,1997
+book,Annapurna,Maurice Herzog,1952
+book,The White Spider,Heinrich Harrer,1959
+book,No Shortcuts to the Top,Ed Viesturs,2006
+book,The Name of the Wind,Patrick Rothfuss,2007
+book,The Fellowship of the Ring,J.R.R. Tolkien,1954
+book,The Two Towers,J.R.R. Tolkien,1954
+book,The Hobbit,J.R.R. Tolkien,1937
+book,A Darker Shade of Magic,V.E. Schwab,2015
+book,The Song of Achilles,Madeline Miller,2011
+book,The Way of Kings,Brandon Sanderson,2010
+book,Words of Radiance,Brandon Sanderson,2014
+book,Oathbringer,Brandon Sanderson,2017
+book,The Hero of Ages,Brandon Sanderson,2008
+book,The Final Empire,Brandon Sanderson,2006
+book,The Well of Ascension,Brandon Sanderson,2007
+book,The Lightning Thief,Rick Riordan,2005
+book,The Sea of Monsters,Rick Riordan,2006
+book,The Titan's Curse,Rick Riordan,2007
+book,The Battle of the Labyrinth,Rick Riordan,2008
+book,The Last Olympian,Rick Riordan,2009
+book,I'll Be Gone in the Dark,Michelle McNamara,2018
+book,Killers of the Flower Moon,David Grann,2017
+book,City on Fire,Don Winslow,2022
+book,The Devil's Star,Jo Nesbo,2003
+book,The Girl with the Dragon Tattoo,Stieg Larsson,2005
+book,Gone Girl,Gillian Flynn,2012
+book,The Silent Patient,Alex Michaelides,2019
+book,Verity,Colleen Hoover,2021
+book,The Seven Husbands of Evelyn Hugo,Taylor Jenkins Reid,2017
+book,The Things We Cannot Say,Kelly Rimmer,2019
+book,The Three Body Problem,Liu Cixin,2008
+book,The Dark Forest,Liu Cixin,2008
+book,Death's End,Liu Cixin,2010
+book,Dune,Frank Herbert,1965
+book,The Martian,Andy Weir,2011
+book,Project Hail Mary,Andy Weir,2021
+book,Ready Player One,Ernest Cline,2011
+book,The Hunger Games,Suzanne Collins,2008
+book,Catching Fire,Suzanne Collins,2009
+book,Mockingjay,Suzanne Collins,2010
+book,The Ballad of Song Birds and Snakes,Suzanne Collins,2020
+book,The Personal Librarian,Marie Benedict,2021
+book,The Book Thief,Markus Zusak,2005
+book,All the Light We Cannot See,Anthony Doerr,2014
+book,The Nightingale,Kristin Hannah,2015
+book,The Tattooist of Auschwitz,Heather Morris,2018
+book,Educated,Tara Westover,2018
+book,Becoming,Michelle Obama,2018
+book,Sapiens,Yuval Noah Harari,2011
+book,Atomic Habits,James Clear,2018
+book,The Subtle Art of Not Giving a F*ck,Mark Manson,2016
+book,The Midnight Library,Matt Haig,2020
+book,Klara and the Sun,Kazuo Ishiguro,2021
+book,The Vanishing Half,Brit Bennett,2020
+book,Such a Fun Age,Kiley Reid,2019
+book,Normal People,Sally Rooney,2018
+book,Conversations with Friends,Sally Rooney,2017
+book,"Beautiful World, Where Are You",Sally Rooney,2021
+book,"Tomorrow, and Tomorrow, and Tomorrow",Gabrielle Zevin,2022
+book,Lessons in Chemistry,Bonnie Garmus,2022
+book,Remarkably Bright Creatures,Shelby Van Pelt,2022
+book,The Overstory,Richard Powers,2018
+book,The Underground Railroad,Colson Whitehead,2016
+book,All the Pretty Horses,Cormac McCarthy,1992
+book,Beloved,Toni Morrison,1987
+book,The Goldfinch,Donna Tartt,2013
+book,A Visit from the Goon Squad,Jennifer Egan,2010
+book,The Brief Wondrous Life of Oscar Wao,Junot Díaz,2007
+book,Middlesex,Jeffrey Eugenides,2002
+book,The Amazing Adventures of Kavalier & Clay,Michael Chabon,2000
+book,Interpreter of Maladies,Jhumpa Lahiri,1999
+book,The Return of the King,J.R.R. Tolkien,1955
+book,The Silmarillion,J.R.R. Tolkien,1977
+book,The Children of Húrin,J.R.R. Tolkien,2007
+book,Rhythm of War,Brandon Sanderson,2020
+book,Dawnshard,Brandon Sanderson,2020
+book,The Alloy of Law,Brandon Sanderson,2011
+book,Shadows of Self,Brandon Sanderson,2015
+book,The Bands of Mourning,Brandon Sanderson,2016
+book,The Lost Metal,Brandon Sanderson,2022
+book,Elantris,Brandon Sanderson,2005
+book,Warbreaker,Brandon Sanderson,2009
+book,The Rithmatist,Brandon Sanderson,2013
+book,Steelheart,Brandon Sanderson,2013
+book,Firefight,Brandon Sanderson,2015
+book,Calamity,Brandon Sanderson,2016
+book,The Wise Man's Fear,Patrick Rothfuss,2011
+book,The Slow Regard of Silent Things,Patrick Rothfuss,2014
+book,A Gathering of Shadows,V.E. Schwab,2016
+book,A Conjuring of Light,V.E. Schwab,2017
+book,Circe,Madeline Miller,2018
+book,The Priory of the Orange Tree,Samantha Shannon,2019
+book,A Day of Fallen Night,Samantha Shannon,2023
+book,The Fifth Season,N.K. Jemisin,2015
+book,The Obelisk Gate,N.K. Jemisin,2016
+book,The Stone Sky,N.K. Jemisin,2017
+book,The Hundred Thousand Kingdoms,N.K. Jemisin,2010
+book,The Broken Kingdoms,N.K. Jemisin,2010
+book,The Kingdom of Gods,N.K. Jemisin,2011
+book,The City We Became,N.K. Jemisin,2020
+book,The World We Make,N.K. Jemisin,2022
+book,The Lies of Locke Lamora,Scott Lynch,2006
+book,Red Seas Under Red Skies,Scott Lynch,2007
+book,The Republic of Thieves,Scott Lynch,2013
+book,The Thorn of Emberlain,Scott Lynch,2024
+book,The Blade Itself,Joe Abercrombie,2006
+book,Before They Are Hanged,Joe Abercrombie,2007
+book,Last Argument of Kings,Joe Abercrombie,2008
+book,Best Served Cold,Joe Abercrombie,2009
+book,The Heroes,Joe Abercrombie,2011
+book,Red Country,Joe Abercrombie,2012
+book,A Little Hatred,Joe Abercrombie,2019
+book,The Trouble With Peace,Joe Abercrombie,2020
+book,The Wisdom of Crowds,Joe Abercrombie,2021
+book,The Way of Shadows,Brent Weeks,2008
+book,Shadow's Edge,Brent Weeks,2008
+book,Beyond the Shadows,Brent Weeks,2008
+book,The Black Prism,Brent Weeks,2010
+book,The Blinding Knife,Brent Weeks,2012
+book,The Broken Eye,Brent Weeks,2014
+book,The Blood Mirror,Brent Weeks,2016
+book,The Burning White,Brent Weeks,2019
+book,The Eye of the World,Robert Jordan,1990
+book,The Great Hunt,Robert Jordan,1990
+book,The Dragon Reborn,Robert Jordan,1991
+book,The Shadow Rising,Robert Jordan,1992
+book,The Fires of Heaven,Robert Jordan,1993
+book,Lord of Chaos,Robert Jordan,1994
+book,A Crown of Swords,Robert Jordan,1996
+book,The Path of Daggers,Robert Jordan,1998
+book,Winter's Heart,Robert Jordan,2000
+book,Crossroads of Twilight,Robert Jordan,2003
+book,Knife of Dreams,Robert Jordan,2005
+book,The Gathering Storm,Robert Jordan & Brandon Sanderson,2009
+book,Towers of Midnight,Robert Jordan & Brandon Sanderson,2010
+book,A Memory of Light,Robert Jordan & Brandon Sanderson,2013
+book,New Spring,Robert Jordan,2004
+book,The Red Queen,Victoria Aveyard,2015
+book,Glass Sword,Victoria Aveyard,2016
+book,King's Cage,Victoria Aveyard,2017
+book,War Storm,Victoria Aveyard,2018
+book,Red Queen,Victoria Aveyard,2015
+book,The Cruel Prince,Holly Black,2018
+book,The Wicked King,Holly Black,2019
+book,The Queen of Nothing,Holly Black,2019
+book,Tithe,Holly Black,2002
+book,Valiant,Holly Black,2005
+book,Ironside,Holly Black,2007
+book,The Darkest Part of the Forest,Holly Black,2015
+book,Book of Night,Holly Black,2022
+book,The Raven Boys,Maggie Stiefvater,2012
+book,The Dream Thieves,Maggie Stiefvater,2013
+book,"Blue Lily, Lily Blue",Maggie Stiefvater,2014
+book,The Raven King,Maggie Stiefvater,2016
+book,Call Down the Hawk,Maggie Stiefvater,2019
+book,Mister Impossible,Maggie Stiefvater,2021
+book,Greywaren,Maggie Stiefvater,2022
+book,Shiver,Maggie Stiefvater,2009
+book,Linger,Maggie Stiefvater,2010
+book,Forever,Maggie Stiefvater,2011
+book,The Scorpio Races,Maggie Stiefvater,2011
+book,All the Crooked Saints,Maggie Stiefvater,2017
+book,The Call,Peadar Ó Guilín,2016
+book,The Invasion,Peadar Ó Guilín,2018
+book,The Cruel Prince,Holly Black,2018
+book,The Wicked King,Holly Black,2019
+book,The Queen of Nothing,Holly Black,2019
+book,Tithe,Holly Black,2002
+book,Valiant,Holly Black,2005
+book,Ironside,Holly Black,2007
+book,The Darkest Part of the Forest,Holly Black,2015
+book,Book of Night,Holly Black,2022
+book,The Raven Boys,Maggie Stiefvater,2012
+book,The Dream Thieves,Maggie Stiefvater,2013
+book,"Blue Lily, Lily Blue",Maggie Stiefvater,2014
+book,The Raven King,Maggie Stiefvater,2016
+book,Call Down the Hawk,Maggie Stiefvater,2019
+book,Mister Impossible,Maggie Stiefvater,2021
+book,Greywaren,Maggie Stiefvater,2022
+book,Shiver,Maggie Stiefvater,2009
+book,Linger,Maggie Stiefvater,2010
+book,Forever,Maggie Stiefvater,2011
+book,The Scorpio Races,Maggie Stiefvater,2011
+book,All the Crooked Saints,Maggie Stiefvater,2017
+book,The Call,Peadar Ó Guilín,2016
+book,The Invasion,Peadar Ó Guilín,2018
+book,Neuromancer,William Gibson,1984
+book,Snow Crash,Neal Stephenson,1992
+book,The Diamond Age,Neal Stephenson,1995
+book,Cryptonomicon,Neal Stephenson,1999
+book,Anathem,Neal Stephenson,2008
+book,Seveneves,Neal Stephenson,2015
+book,"Fall; or, Dodge in Hell",Neal Stephenson,2019
+book,Termination Shock,Neal Stephenson,2021
+book,The Foundation,Isaac Asimov,1951
+book,Foundation and Empire,Isaac Asimov,1952
+book,Second Foundation,Isaac Asimov,1953
+book,Foundation's Edge,Isaac Asimov,1982
+book,Foundation and Earth,Isaac Asimov,1986
+book,Prelude to Foundation,Isaac Asimov,1988
+book,Forward the Foundation,Isaac Asimov,1993
+book,"I, Robot",Isaac Asimov,1950
+book,The Caves of Steel,Isaac Asimov,1954
+book,The Naked Sun,Isaac Asimov,1957
+book,The Robots of Dawn,Isaac Asimov,1983
+book,Robots and Empire,Isaac Asimov,1985
+book,The Gods Themselves,Isaac Asimov,1972
+book,Nightfall,Isaac Asimov,1990
+book,The End of Eternity,Isaac Asimov,1955
+book,"The Stars, Like Dust",Isaac Asimov,1951
+book,The Currents of Space,Isaac Asimov,1952
+book,Pebble in the Sky,Isaac Asimov,1950
+book,The Hitchhiker's Guide to the Galaxy,Douglas Adams,1979
+book,The Restaurant at the End of the Universe,Douglas Adams,1980
+book,"Life, the Universe and Everything",Douglas Adams,1982
+book,"So Long, and Thanks for All the Fish",Douglas Adams,1984
+book,Mostly Harmless,Douglas Adams,1992
+book,Dirk Gently's Holistic Detective Agency,Douglas Adams,1987
+book,The Long Dark Tea-Time of the Soul,Douglas Adams,1988
+book,1984,George Orwell,1949
+book,Animal Farm,George Orwell,1945
+book,Brave New World,Aldous Huxley,1932
+book,Fahrenheit 451,Ray Bradbury,1953
+book,The Martian Chronicles,Ray Bradbury,1950
+book,Something Wicked This Way Comes,Ray Bradbury,1962
+book,The Illustrated Man,Ray Bradbury,1951
+book,The October Country,Ray Bradbury,1955
+book,Dandelion Wine,Ray Bradbury,1957
+book,Death is a Lonely Business,Ray Bradbury,1985
+book,A Graveyard for Lunatics,Ray Bradbury,1990
+book,Let's All Kill Constance,Ray Bradbury,2003
+book,The Handmaid's Tale,Margaret Atwood,1985
+book,The Testaments,Margaret Atwood,2019
+book,Oryx and Crake,Margaret Atwood,2003
+book,The Year of the Flood,Margaret Atwood,2009
+book,MaddAddam,Margaret Atwood,2013
+book,The Blind Assassin,Margaret Atwood,2000
+book,Alias Grace,Margaret Atwood,1996
+book,Cat's Eye,Margaret Atwood,1988
+book,The Robber Bride,Margaret Atwood,1993
+book,The Edible Woman,Margaret Atwood,1969
+book,Surfacing,Margaret Atwood,1972
+book,Lady Oracle,Margaret Atwood,1976
+book,Life Before Man,Margaret Atwood,1979
+book,Bodily Harm,Margaret Atwood,1981
+book,The Heart Goes Last,Margaret Atwood,2015
+book,Hag-Seed,Margaret Atwood,2016
+book,The Penelopiad,Margaret Atwood,2005
+book,The Door,Margaret Atwood,2007
+book,Morning in the Burned House,Margaret Atwood,1995
+book,Interlunar,Margaret Atwood,1984
+book,True Stories,Margaret Atwood,1981
+book,Two-Headed Poems,Margaret Atwood,1978
+book,You Are Happy,Margaret Atwood,1974
+book,Power Politics,Margaret Atwood,1971
+book,The Journals of Susanna Moodie,Margaret Atwood,1970
+book,The Circle Game,Margaret Atwood,1966
+book,Double Persephone,Margaret Atwood,1961
+book,The Stone Diaries,Carol Shields,1993
+book,Unless,Carol Shields,2002
+book,Larry's Party,Carol Shields,1997
+book,The Republic of Love,Carol Shields,1992
+book,Swann,Carol Shields,1987
+book,Happenstance,Carol Shields,1980
+book,Small Ceremonies,Carol Shields,1976
+book,The Box Garden,Carol Shields,1977
+book,Various Miracles,Carol Shields,1985
+book,The Orange Fish,Carol Shields,1989
+book,Dressing Up for the Carnival,Carol Shields,2000
+book,Collected Stories,Carol Shields,2004
+book,Coming Through Slaughter,Michael Ondaatje,1976
+book,In the Skin of a Lion,Michael Ondaatje,1987
+book,The English Patient,Michael Ondaatje,1992
+book,Anil's Ghost,Michael Ondaatje,2000
+book,Divisadero,Michael Ondaatje,2007
+book,The Cat's Table,Michael Ondaatje,2011
+book,Warlight,Michael Ondaatje,2018
+book,The Collected Works of Billy the Kid,Michael Ondaatje,1970
+book,Running in the Family,Michael Ondaatje,1982
+book,Handwriting,Michael Ondaatje,1998
+book,The Cinnamon Peeler,Michael Ondaatje,1989
+book,Secular Love,Michael Ondaatje,1984
+book,There's a Trick with a Knife I'm Learning to Do,Michael Ondaatje,1979
+book,Rat Jelly,Michael Ondaatje,1973
+book,The Dainty Monsters,Michael Ondaatje,1967
+book,The Man with Seven Toes,Michael Ondaatje,1969
+book,Elimination Dance,Michael Ondaatje,1978
+book,Tin Roof,Michael Ondaatje,1982
+book,The Story,Michael Ondaatje,2005
+book,The Conversation,Michael Ondaatje,2012
+book,The Long Poem Anthology,Michael Ondaatje,1979
+book,The Brick Reader,Michael Ondaatje,1991
+book,From Ink Lake,Michael Ondaatje,1990
+book,The Faber Book of Contemporary Canadian Short Stories,Michael Ondaatje,1990
+book,The Vintage Book of Contemporary Canadian Fiction,Michael Ondaatje,1997
+book,The Norton Anthology of English Literature,Various,1962
+book,The Norton Anthology of American Literature,Various,1979
+book,The Norton Anthology of World Literature,Various,2001
+book,The Oxford Book of English Verse,Various,1900
+book,The Norton Anthology of Poetry,Various,1970
+book,The Best American Short Stories,Various,1915
+book,The O. Henry Prize Stories,Various,1919
+book,The Pushcart Prize,Various,1976
+book,The Best American Essays,Various,1986
+book,The Best American Poetry,Various,1988
+book,The Best American Science Fiction and Fantasy,Various,2015
+book,The Year's Best Science Fiction,Various,1984
+book,The Year's Best Fantasy and Horror,Various,1988
+book,The Best American Mystery Stories,Various,1997
+book,The Best American Crime Writing,Various,2002
+book,The Best American Travel Writing,Various,2000
+book,The Best American Sports Writing,Various,1991
+book,The Best American Food Writing,Various,2000
+book,The Best American Science and Nature Writing,Various,2000
+book,The Best American Nonrequired Reading,Various,2002
+book,The Best American Comics,Various,2006
+book,The Best American Infographics,Various,2013
+book,The Best American Magazine Writing,Various,2000
+book,The Best American Newspaper Writing,Various,2001
+book,The Best American Spiritual Writing,Various,2004
+book,The Best American Gay and Lesbian Writing,Various,2000
+book,The Best American Erotica,Various,1993
+book,The Best American Humor,Various,1993
+book,The Best American Political Writing,Various,2004
+book,The Best American Business Writing,Various,2012
+book,The Best American Technology Writing,Various,2006
+book,The Best American Medical Writing,Various,2006
+book,The Best American Legal Writing,Various,2006
+book,The Best American Historical Writing,Various,2007
+book,The Best American Military Writing,Various,2008
+book,The Best American Environmental Writing,Various,2001
+book,The Best American Essays of the Century,Various,2000
+book,The Best American Short Stories of the Century,Various,1999
+book,The Best American Poetry of the Century,Various,2000
+book,The Best American Science Fiction of the Century,Various,2000
+book,The Best American Fantasy of the Century,Various,2000
+book,The Best American Mystery Stories of the Century,Various,2000
+book,The Best American Crime Stories of the Century,Various,2000
+book,The Best American Travel Writing of the Century,Various,2000
+book,The Best American Sports Writing of the Century,Various,2000
+book,The Best American Food Writing of the Century,Various,2000
+book,The Best American Science and Nature Writing of the Century,Various,2000
+book,The Best American Nonrequired Reading of the Century,Various,2000
+book,The Best American Comics of the Century,Various,2000
+book,The Best American Infographics of the Century,Various,2000
+book,The Best American Magazine Writing of the Century,Various,2000
+book,The Best American Newspaper Writing of the Century,Various,2000
+book,The Best American Spiritual Writing of the Century,Various,2000
+book,The Best American Gay and Lesbian Writing of the Century,Various,2000
+book,The Best American Erotica of the Century,Various,2000
+book,The Best American Humor of the Century,Various,2000
+book,The Best American Political Writing of the Century,Various,2000
+book,The Best American Business Writing of the Century,Various,2000
+book,The Best American Technology Writing of the Century,Various,2000
+book,The Best American Medical Writing of the Century,Various,2000
+book,The Best American Legal Writing of the Century,Various,2000
+book,The Best American Historical Writing of the Century,Various,2000
+book,The Best American Military Writing of the Century,Various,2000
+book,The Best American Environmental Writing of the Century,Various,2000
+book,To Kill a Mockingbird,Harper Lee,1960
+book,The Great Gatsby,F. Scott Fitzgerald,1925
+book,Lord of the Flies,William Golding,1954
+book,The Grapes of Wrath,John Steinbeck,1939
+book,Of Mice and Men,John Steinbeck,1937
+book,The Old Man and the Sea,Ernest Hemingway,1952
+book,For Whom the Bell Tolls,Ernest Hemingway,1940
+book,A Farewell to Arms,Ernest Hemingway,1929
+book,The Sun Also Rises,Ernest Hemingway,1926
+book,The Adventures of Huckleberry Finn,Mark Twain,1884
+book,The Adventures of Tom Sawyer,Mark Twain,1876
+book,Moby-Dick,Herman Melville,1851
+book,The Scarlet Letter,Nathaniel Hawthorne,1850
+book,The Crucible,Arthur Miller,1953
+book,Death of a Salesman,Arthur Miller,1949
+book,Romeo and Juliet,William Shakespeare,1597
+book,Hamlet,William Shakespeare,1603
+book,Macbeth,William Shakespeare,1606
+book,Othello,William Shakespeare,1604
+book,King Lear,William Shakespeare,1606
+book,Julius Caesar,William Shakespeare,1599
+book,A Midsummer Night's Dream,William Shakespeare,1596
+book,The Tempest,William Shakespeare,1611
+book,Much Ado About Nothing,William Shakespeare,1598
+book,Twelfth Night,William Shakespeare,1601
+book,As You Like It,William Shakespeare,1599
+book,The Merchant of Venice,William Shakespeare,1596
+book,The Taming of the Shrew,William Shakespeare,1592
+book,Antony and Cleopatra,William Shakespeare,1607
+book,Coriolanus,William Shakespeare,1608
+book,Timon of Athens,William Shakespeare,1607
+book,"Pericles, Prince of Tyre",William Shakespeare,1608
+book,Cymbeline,William Shakespeare,1611
+book,The Winter's Tale,William Shakespeare,1611
+book,The Two Noble Kinsmen,William Shakespeare,1613
+book,"Henry IV, Part 1",William Shakespeare,1597
+book,"Henry IV, Part 2",William Shakespeare,1598
+book,Henry V,William Shakespeare,1599
+book,"Henry VI, Part 1",William Shakespeare,1591
+book,"Henry VI, Part 2",William Shakespeare,1591
+book,"Henry VI, Part 3",William Shakespeare,1591
+book,Richard III,William Shakespeare,1592
+book,Richard II,William Shakespeare,1595
+book,Henry VIII,William Shakespeare,1613
+book,King John,William Shakespeare,1596
+book,Edward III,William Shakespeare,1596
+book,Sir Thomas More,William Shakespeare,1600
+book,The Two Gentlemen of Verona,William Shakespeare,1594
+book,The Comedy of Errors,William Shakespeare,1594
+book,Love's Labour's Lost,William Shakespeare,1595
+book,All's Well That Ends Well,William Shakespeare,1602
+book,Measure for Measure,William Shakespeare,1604
+book,Troilus and Cressida,William Shakespeare,1602
+book,Titus Andronicus,William Shakespeare,1594
+book,The Rape of Lucrece,William Shakespeare,1594
+book,Venus and Adonis,William Shakespeare,1593
+book,The Sonnets,William Shakespeare,1609
+book,A Lover's Complaint,William Shakespeare,1609
+book,The Passionate Pilgrim,William Shakespeare,1599
+book,The Phoenix and the Turtle,William Shakespeare,1601
+book,A Christmas Carol,Charles Dickens,1843
+book,The Gift of the Magi,O. Henry,1905
+book,The Polar Express,Chris Van Allsburg,1985
+book,How the Grinch Stole Christmas!,Dr. Seuss,1957
+book,The Night Before Christmas,Clement Clarke Moore,1823
+book,The Nutcracker,E.T.A. Hoffmann,1816
+book,The Little Match Girl,Hans Christian Andersen,1845
+book,The Snowman,Raymond Briggs,1978
+book,The Best Christmas Pageant Ever,Barbara Robinson,1972
+book,The Christmas Box,Richard Paul Evans,1993
+book,Skipping Christmas,John Grisham,2001
+book,The Christmas Train,David Baldacci,2002
+book,The Christmas Sweater,Glenn Beck,2008
+book,The Christmas List,Richard Paul Evans,2009
+book,The Christmas Promise,Richard Paul Evans,2010
+book,The Christmas Room,Catherine Anderson,2017
+book,The Christmas Wedding,James Patterson,2011
+book,The Christmas Hope,Donna VanLiere,2005
+book,The Christmas Shoes,Donna VanLiere,2001
+book,The Christmas Blessing,Donna VanLiere,2003
+book,The Christmas Secret,Donna VanLiere,2004
+book,The Christmas Journey,Donna VanLiere,2010
+book,The Christmas Note,Donna VanLiere,2011
+book,The Christmas Light,Donna VanLiere,2013
+book,The Christmas Town,Donna VanLiere,2016
+book,The Christmas Table,Donna VanLiere,2017
+book,The Christmas Prayer,Donna VanLiere,2018
+book,The Christmas Wish,Donna VanLiere,2019
+book,The Christmas Star,Donna VanLiere,2020
+book,The Christmas Bridge,Donna VanLiere,2021
+book,The Christmas Window,Donna VanLiere,2022
+book,The Christmas Door,Donna VanLiere,2023
+book,The Legend of Sleepy Hollow,Washington Irving,1820
+book,The Raven,Edgar Allan Poe,1845
+book,The Tell-Tale Heart,Edgar Allan Poe,1843
+book,The Fall of the House of Usher,Edgar Allan Poe,1839
+book,The Masque of the Red Death,Edgar Allan Poe,1842
+book,The Pit and the Pendulum,Edgar Allan Poe,1842
+book,The Black Cat,Edgar Allan Poe,1843
+book,The Cask of Amontillado,Edgar Allan Poe,1846
+book,The Murders in the Rue Morgue,Edgar Allan Poe,1841
+book,The Purloined Letter,Edgar Allan Poe,1844
+book,The Mystery of Marie Rogêt,Edgar Allan Poe,1842
+book,The Gold-Bug,Edgar Allan Poe,1843
+book,The Premature Burial,Edgar Allan Poe,1844
+book,The Facts in the Case of M. Valdemar,Edgar Allan Poe,1845
+book,The Oval Portrait,Edgar Allan Poe,1842
+book,The Assignation,Edgar Allan Poe,1834
+book,Berenice,Edgar Allan Poe,1835
+book,Morella,Edgar Allan Poe,1835
+book,Ligeia,Edgar Allan Poe,1838
+book,The Haunted Palace,Edgar Allan Poe,1839
+book,The Conqueror Worm,Edgar Allan Poe,1843
+book,Ulalume,Edgar Allan Poe,1847
+book,Annabel Lee,Edgar Allan Poe,1849
+book,The Bells,Edgar Allan Poe,1849
+book,Eldorado,Edgar Allan Poe,1849
+book,A Dream Within a Dream,Edgar Allan Poe,1849
+book,The City in the Sea,Edgar Allan Poe,1845
+book,The Sleeper,Edgar Allan Poe,1831
+book,The Valley of Unrest,Edgar Allan Poe,1831
+book,The Lake,Edgar Allan Poe,1827
+book,To Helen,Edgar Allan Poe,1831
+book,Israfel,Edgar Allan Poe,1831
+book,The Coliseum,Edgar Allan Poe,1833
+book,The Haunted Mind,Nathaniel Hawthorne,1835
+book,Young Goodman Brown,Nathaniel Hawthorne,1835
+book,The Minister's Black Veil,Nathaniel Hawthorne,1836
+book,The Birthmark,Nathaniel Hawthorne,1843
+book,Rappaccini's Daughter,Nathaniel Hawthorne,1844
+book,The House of the Seven Gables,Nathaniel Hawthorne,1851
+book,The Scarlet Letter,Nathaniel Hawthorne,1850
+book,The Marble Faun,Nathaniel Hawthorne,1860
+book,The Blithedale Romance,Nathaniel Hawthorne,1852
+book,Fanshawe,Nathaniel Hawthorne,1828
+book,The Dolliver Romance,Nathaniel Hawthorne,1864
+book,Septimius Felton,Nathaniel Hawthorne,1872
+book,The Ancestral Footstep,Nathaniel Hawthorne,1883
+book,The Ghost of the Count's Daughter,Nathaniel Hawthorne,1838
+book,The Hollow of the Three Hills,Nathaniel Hawthorne,1830
+book,The Wives of the Dead,Nathaniel Hawthorne,1832
+book,The White Old Maid,Nathaniel Hawthorne,1835
+book,The Ambitious Guest,Nathaniel Hawthorne,1835
+book,The Wedding Knell,Nathaniel Hawthorne,1836
+book,The Maypole of Merry Mount,Nathaniel Hawthorne,1836
+book,The Gentle Boy,Nathaniel Hawthorne,1832
+book,The Gray Champion,Nathaniel Hawthorne,1835
+book,Endicott and the Red Cross,Nathaniel Hawthorne,1838
+book,The Shaker Bridal,Nathaniel Hawthorne,1838
+book,The Lily's Quest,Nathaniel Hawthorne,1839
+book,The Threefold Destiny,Nathaniel Hawthorne,1838
+book,The Village Uncle,Nathaniel Hawthorne,1835
+book,The Old Apple Dealer,Nathaniel Hawthorne,1837
+book,The Sister Years,Nathaniel Hawthorne,1839
+book,Snowflakes,Nathaniel Hawthorne,1838
+book,The Christmas Banquet,Nathaniel Hawthorne,1844
+book,The New Adam and Eve,Nathaniel Hawthorne,1843
+book,The Hall of Fantasy,Nathaniel Hawthorne,1843
+book,The Procession of Life,Nathaniel Hawthorne,1843
+book,The Celestial Railroad,Nathaniel Hawthorne,1843
+book,The Intelligence Office,Nathaniel Hawthorne,1844
+book,The Artist of the Beautiful,Nathaniel Hawthorne,1844
+book,A Select Party,Nathaniel Hawthorne,1844
+book,A Book of Autographs,Nathaniel Hawthorne,1844
+book,The Old Manse,Nathaniel Hawthorne,1846
+book,The Seven Husbands of Evelyn Hugo,Taylor Jenkins Reid,2017
+book,Daisy Jones & The Six,Taylor Jenkins Reid,2019
+book,Malibu Rising,Taylor Jenkins Reid,2021
+book,Carrie Soto Is Back,Taylor Jenkins Reid,2022
+book,The Midnight Library,Matt Haig,2020
+book,The Invisible Life of Addie LaRue,V.E. Schwab,2020
+book,The House in the Cerulean Sea,TJ Klune,2020
+book,Under the Whispering Door,TJ Klune,2021
+book,The Paper Palace,Miranda Cowley Heller,2021
+book,Lessons in Chemistry,Bonnie Garmus,2022
+book,"Tomorrow, and Tomorrow, and Tomorrow",Gabrielle Zevin,2022
+book,Remarkably Bright Creatures,Shelby Van Pelt,2022
+book,The Maid,Nita Prose,2022
+book,The Dictionary of Lost Words,Pip Williams,2020
+book,The Four Winds,Kristin Hannah,2021
+book,The Great Alone,Kristin Hannah,2018
+book,The Nightingale,Kristin Hannah,2015
+book,Firefly Lane,Kristin Hannah,2008
+book,Fly Away,Kristin Hannah,2013
+book,The Vanishing Half,Brit Bennett,2020
+book,The Mothers,Brit Bennett,2016
+book,Such a Fun Age,Kiley Reid,2019
+book,Come and Get It,Kiley Reid,2024
+book,Normal People,Sally Rooney,2018
+book,Conversations with Friends,Sally Rooney,2017
+book,"Beautiful World, Where Are You",Sally Rooney,2021
+book,Klara and the Sun,Kazuo Ishiguro,2021
+book,The Remains of the Day,Kazuo Ishiguro,1989
+book,Never Let Me Go,Kazuo Ishiguro,2005
+book,The Buried Giant,Kazuo Ishiguro,2015
+book,When We Were Orphans,Kazuo Ishiguro,2000
+book,The Unconsoled,Kazuo Ishiguro,1995
+book,A Pale View of Hills,Kazuo Ishiguro,1982
+book,An Artist of the Floating World,Kazuo Ishiguro,1986
+book,The Personal Librarian,Marie Benedict,2021
+book,The Other Einstein,Marie Benedict,2016
+book,Carnegie's Maid,Marie Benedict,2018
+book,Lady Clementine,Marie Benedict,2020
+book,The Mystery of Mrs. Christie,Marie Benedict,2020
+book,Her Hidden Genius,Marie Benedict,2022
+book,The Mitford Affair,Marie Benedict,2023
+book,The Book Thief,Markus Zusak,2005
+book,I Am the Messenger,Markus Zusak,2002
+book,Bridge of Clay,Markus Zusak,2018
+book,The Messenger,Markus Zusak,2002
+book,Fighting Ruben Wolfe,Markus Zusak,2000
+book,Getting the Girl,Markus Zusak,2001
+book,The Underdog,Markus Zusak,1999
+book,Educated,Tara Westover,2018
+book,Becoming,Michelle Obama,2018
+book,The Light We Carry,Michelle Obama,2022
+book,Untamed,Glennon Doyle,2020
+book,Love Warrior,Glennon Doyle,2016
+book,"Carry On, Warrior",Glennon Doyle,2013
+book,The Glass Castle,Jeannette Walls,2005
+book,Half Broke Horses,Jeannette Walls,2009
+book,The Silver Star,Jeannette Walls,2013
+book,Hang the Moon,Jeannette Walls,2023
+book,Wild,Cheryl Strayed,2012
+book,Tiny Beautiful Things,Cheryl Strayed,2012
+book,Brave Enough,Cheryl Strayed,2015
+book,The Best of Me,Cheryl Strayed,2020
+book,The Year of Magical Thinking,Joan Didion,2005
+book,Blue Nights,Joan Didion,2011
+book,Slouching Towards Bethlehem,Joan Didion,1968
+book,The White Album,Joan Didion,1979
+book,Play It As It Lays,Joan Didion,1970
+book,A Book of Common Prayer,Joan Didion,1977
+book,Democracy,Joan Didion,1984
+book,The Last Thing He Wanted,Joan Didion,1996
+book,Where I Was From,Joan Didion,2003
+book,Political Fictions,Joan Didion,2001
+book,Fixed Ideas,Joan Didion,2003
+book,South and West,Joan Didion,2017
+book,Let Me Tell You What I Mean,Joan Didion,2021
+book,The Woman in Me,Britney Spears,2023
+book,Spare,Prince Harry,2023
+book,Finding Me,Viola Davis,2022
+book,Just as I Am,Cicely Tyson,2021
+book,The Beauty in Breaking,Michele Harper,2020
+book,Know My Name,Chanel Miller,2019
+book,In the Dream House,Carmen Maria Machado,2019
+book,Her Body and Other Parties,Carmen Maria Machado,2017
+book,The Lowland,Jhumpa Lahiri,2013
+book,Unaccustomed Earth,Jhumpa Lahiri,2008
+book,The Namesake,Jhumpa Lahiri,2003
+book,Whereabouts,Jhumpa Lahiri,2021
+book,Roman Stories,Jhumpa Lahiri,2023
+book,The House of the Spirits,Isabel Allende,1982
+book,Eva Luna,Isabel Allende,1987
+book,Daughter of Fortune,Isabel Allende,1999
+book,Portrait in Sepia,Isabel Allende,2000
+book,Zorro,Isabel Allende,2005
+book,Inés of My Soul,Isabel Allende,2006
+book,Island Beneath the Sea,Isabel Allende,2009
+book,Maya's Notebook,Isabel Allende,2011
+book,Ripper,Isabel Allende,2014
+book,The Japanese Lover,Isabel Allende,2015
+book,In the Midst of Winter,Isabel Allende,2017
+book,A Long Petal of the Sea,Isabel Allende,2019
+book,Violeta,Isabel Allende,2022
+book,The Wind Knows My Name,Isabel Allende,2023
+book,The Handmaid's Tale,Margaret Atwood,1985
+book,The Testaments,Margaret Atwood,2019
+book,Alias Grace,Margaret Atwood,1996
+book,The Blind Assassin,Margaret Atwood,2000
+book,Oryx and Crake,Margaret Atwood,2003
+book,The Year of the Flood,Margaret Atwood,2009
+book,MaddAddam,Margaret Atwood,2013
+book,The Robber Bride,Margaret Atwood,1993
+book,Cat's Eye,Margaret Atwood,1988
+book,The Edible Woman,Margaret Atwood,1969
+book,Surfacing,Margaret Atwood,1972
+book,Lady Oracle,Margaret Atwood,1976
+book,Life Before Man,Margaret Atwood,1979
+book,Bodily Harm,Margaret Atwood,1981
+book,The Penelopiad,Margaret Atwood,2005
+book,The Heart Goes Last,Margaret Atwood,2015
+book,Hag-Seed,Margaret Atwood,2016
+book,The Stone Mattress,Margaret Atwood,2014
+book,Dancing Girls,Margaret Atwood,1977
+book,Bluebeard's Egg,Margaret Atwood,1983
+book,Wilderness Tips,Margaret Atwood,1991
+book,Good Bones and Simple Murders,Margaret Atwood,1992
+book,The Tent,Margaret Atwood,2006
+book,Moral Disorder,Margaret Atwood,2006
+book,Old Babes in the Wood,Margaret Atwood,2023
+book,The Color Purple,Alice Walker,1982
+book,Meridian,Alice Walker,1976
+book,The Third Life of Grange Copeland,Alice Walker,1970
+book,Possessing the Secret of Joy,Alice Walker,1992
+book,By the Light of My Father's Smile,Alice Walker,1998
+book,The Way Forward Is with a Broken Heart,Alice Walker,2000
+book,Now Is the Time to Open Your Heart,Alice Walker,2004
+book,We Are the Ones We Have Been Waiting For,Alice Walker,2006
+book,The Chicken Chronicles,Alice Walker,2011
+book,The Cushion in the Road,Alice Walker,2013
+book,Taking the Arrow Out of the Heart,Alice Walker,2018
+book,Gathering Blossoms Under Fire,Alice Walker,2022
+book,The Temple of My Familiar,Alice Walker,1989
+book,To Hell with Dying,Alice Walker,1988
+book,Finding the Green Stone,Alice Walker,1991
+book,Langston Hughes: American Poet,Alice Walker,1974
+book,There Is a Flower at the Tip of My Nose Smelling Me,Alice Walker,2006
+book,Why War Is Never a Good Idea,Alice Walker,2007
+book,Sweet People Are Everywhere,Alice Walker,2021
+book,The Beauty in Breaking,Michele Harper,2020
+book,Know My Name,Chanel Miller,2019
+book,In the Dream House,Carmen Maria Machado,2019
+book,Her Body and Other Parties,Carmen Maria Machado,2017
+book,The Lowland,Jhumpa Lahiri,2013
+book,Unaccustomed Earth,Jhumpa Lahiri,2008
+book,The Namesake,Jhumpa Lahiri,2003
+book,Whereabouts,Jhumpa Lahiri,2021
+book,Roman Stories,Jhumpa Lahiri,2023
+book,The House of the Spirits,Isabel Allende,1982
+book,Eva Luna,Isabel Allende,1987
+book,Daughter of Fortune,Isabel Allende,1999
+book,Portrait in Sepia,Isabel Allende,2000
+book,Zorro,Isabel Allende,2005
+book,Inés of My Soul,Isabel Allende,2006
+book,Island Beneath the Sea,Isabel Allende,2009
+book,Maya's Notebook,Isabel Allende,2011
+book,Ripper,Isabel Allende,2014
+book,The Japanese Lover,Isabel Allende,2015
+book,In the Midst of Winter,Isabel Allende,2017
+book,A Long Petal of the Sea,Isabel Allende,2019
+book,Violeta,Isabel Allende,2022
+book,The Wind Knows My Name,Isabel Allende,2023
+book,The Handmaid's Tale,Margaret Atwood,1985
+book,The Testaments,Margaret Atwood,2019
+book,Alias Grace,Margaret Atwood,1996
+book,The Blind Assassin,Margaret Atwood,2000
+book,Oryx and Crake,Margaret Atwood,2003
+book,The Year of the Flood,Margaret Atwood,2009
+book,MaddAddam,Margaret Atwood,2013
+book,The Robber Bride,Margaret Atwood,1993
+book,Cat's Eye,Margaret Atwood,1988
+book,The Edible Woman,Margaret Atwood,1969
+book,Surfacing,Margaret Atwood,1972
+book,Lady Oracle,Margaret Atwood,1976
+book,Life Before Man,Margaret Atwood,1979
+book,Bodily Harm,Margaret Atwood,1981
+book,The Penelopiad,Margaret Atwood,2005
+book,The Heart Goes Last,Margaret Atwood,2015
+book,Hag-Seed,Margaret Atwood,2016
+book,The Stone Mattress,Margaret Atwood,2014
+book,Dancing Girls,Margaret Atwood,1977
+book,Bluebeard's Egg,Margaret Atwood,1983
+book,Wilderness Tips,Margaret Atwood,1991
+book,Good Bones and Simple Murders,Margaret Atwood,1992
+book,The Tent,Margaret Atwood,2006
+book,Moral Disorder,Margaret Atwood,2006
+book,Old Babes in the Wood,Margaret Atwood,2023
+book,The Color Purple,Alice Walker,1982
+book,Meridian,Alice Walker,1976
+book,The Third Life of Grange Copeland,Alice Walker,1970
+book,Possessing the Secret of Joy,Alice Walker,1992
+book,By the Light of My Father's Smile,Alice Walker,1998
+book,The Way Forward Is with a Broken Heart,Alice Walker,2000
+book,Now Is the Time to Open Your Heart,Alice Walker,2004
+book,We Are the Ones We Have Been Waiting For,Alice Walker,2006
+book,The Chicken Chronicles,Alice Walker,2011
+book,The Cushion in the Road,Alice Walker,2013
+book,Taking the Arrow Out of the Heart,Alice Walker,2018
+book,Gathering Blossoms Under Fire,Alice Walker,2022
+book,The Temple of My Familiar,Alice Walker,1989
+book,To Hell with Dying,Alice Walker,1988
+book,Finding the Green Stone,Alice Walker,1991
+book,Langston Hughes: American Poet,Alice Walker,1974
+book,There Is a Flower at the Tip of My Nose Smelling Me,Alice Walker,2006
+book,Why War Is Never a Good Idea,Alice Walker,2007
+book,Sweet People Are Everywhere,Alice Walker,2021
+book,Mama Day,Gloria Naylor,1988
+book,Bailey's Cafe,Gloria Naylor,1992
+book,The Men of Brewster Place,Gloria Naylor,1998
+book,1996,Gloria Naylor,2005
+book,Kindred,Octavia Butler,1979
+book,Parable of the Sower,Octavia Butler,1993
+book,Parable of the Talents,Octavia Butler,1998
+book,Wild Seed,Octavia Butler,1980
+book,Mind of My Mind,Octavia Butler,1977
+book,Clay's Ark,Octavia Butler,1984
+book,Patternmaster,Octavia Butler,1976
+book,Survivor,Octavia Butler,1978
+book,Fledgling,Octavia Butler,2005
+book,Bloodchild and Other Stories,Octavia Butler,1995
+book,Seed to Harvest,Octavia Butler,2007
+book,Lilith's Brood,Octavia Butler,2000
+book,The Parable Series,Octavia Butler,2007
+book,The Complete Stories,Flannery O'Connor,1971
+book,Wise Blood,Flannery O'Connor,1952
+book,The Violent Bear It Away,Flannery O'Connor,1960
+book,A Good Man Is Hard to Find,Flannery O'Connor,1955
+book,Everything That Rises Must Converge,Flannery O'Connor,1965
+book,Mystery and Manners,Flannery O'Connor,1969
+book,The Habit of Being,Flannery O'Connor,1979
+book,A Prayer Journal,Flannery O'Connor,2013
+book,The Complete Stories,Eudora Welty,1980
+book,Delta Wedding,Eudora Welty,1946
+book,The Optimist's Daughter,Eudora Welty,1972
+book,Losing Battles,Eudora Welty,1970
+book,The Robber Bridegroom,Eudora Welty,1942
+book,The Ponder Heart,Eudora Welty,1954
+book,One Writer's Beginnings,Eudora Welty,1984
+book,The Eye of the Story,Eudora Welty,1978
+book,The Golden Apples,Eudora Welty,1949
+book,The Wide Net,Eudora Welty,1943
+book,A Curtain of Green,Eudora Welty,1941
+book,The Bride of the Innisfallen,Eudora Welty,1955
+book,The Collected Stories,Eudora Welty,1980
+book,The Norton Book of Friendship,Eudora Welty,1991
+book,The Norton Book of American Autobiography,Eudora Welty,1991
+book,1984,George Orwell,1949
+book,Animal Farm,George Orwell,1945
+book,Brave New World,Aldous Huxley,1932
+book,Fahrenheit 451,Ray Bradbury,1953
+book,The Catcher in the Rye,J.D. Salinger,1951
+book,To Kill a Mockingbird,Harper Lee,1960
+book,The Adventures of Huckleberry Finn,Mark Twain,1885
+book,The Great Gatsby,F. Scott Fitzgerald,1925
+book,Of Mice and Men,John Steinbeck,1937
+book,The Grapes of Wrath,John Steinbeck,1939
+book,Lord of the Flies,William Golding,1954
+book,The Lord of the Rings,J.R.R. Tolkien,1954
+book,The Hobbit,J.R.R. Tolkien,1937
+book,The Chronicles of Narnia,C.S. Lewis,1950
+book,A Clockwork Orange,Anthony Burgess,1962
+book,Lolita,Vladimir Nabokov,1955
+book,The Satanic Verses,Salman Rushdie,1988
+book,The Handmaid's Tale,Margaret Atwood,1985
+book,Beloved,Toni Morrison,1987
+book,The Color Purple,Alice Walker,1982
+book,Native Son,Richard Wright,1940
+book,Invisible Man,Ralph Ellison,1952
+book,Go Tell It on the Mountain,James Baldwin,1953
+book,Giovanni's Room,James Baldwin,1956
+book,Another Country,James Baldwin,1962
+book,If Beale Street Could Talk,James Baldwin,1974
+book,The Autobiography of Malcolm X,Malcolm X,1965
+book,The Fire Next Time,James Baldwin,1963
+book,Notes of a Native Son,James Baldwin,1955
+book,Nobody Knows My Name,James Baldwin,1961
+book,The Devil Finds Work,James Baldwin,1976
+book,No Name in the Street,James Baldwin,1972
+book,The Evidence of Things Not Seen,James Baldwin,1985
+book,The Price of the Ticket,James Baldwin,1985
+book,The Cross of Redemption,James Baldwin,2010
+book,I Am Not Your Negro,James Baldwin,2017
+book,The Women of Brewster Place,Gloria Naylor,1982
+book,Linden Hills,Gloria Naylor,1985
+book,Mama Day,Gloria Naylor,1988
+book,Bailey's Cafe,Gloria Naylor,1992
+book,The Men of Brewster Place,Gloria Naylor,1998
+book,1996,Gloria Naylor,2005
+book,Kindred,Octavia Butler,1979
+book,Parable of the Sower,Octavia Butler,1993
+book,Parable of the Talents,Octavia Butler,1998
+book,Wild Seed,Octavia Butler,1980
+book,Mind of My Mind,Octavia Butler,1977
+book,Clay's Ark,Octavia Butler,1984
+book,Patternmaster,Octavia Butler,1976
+book,Survivor,Octavia Butler,1978
+book,Fledgling,Octavia Butler,2005
+book,Bloodchild and Other Stories,Octavia Butler,1995
+book,Seed to Harvest,Octavia Butler,2007
+book,Lilith's Brood,Octavia Butler,2000
+book,The Parable Series,Octavia Butler,2007
+book,The Complete Stories,Flannery O'Connor,1971
+book,Wise Blood,Flannery O'Connor,1952
+book,The Violent Bear It Away,Flannery O'Connor,1960
+book,A Good Man Is Hard to Find,Flannery O'Connor,1955
+book,Everything That Rises Must Converge,Flannery O'Connor,1965
+book,Mystery and Manners,Flannery O'Connor,1969
+book,The Habit of Being,Flannery O'Connor,1979
+book,A Prayer Journal,Flannery O'Connor,2013
+book,The Complete Stories,Eudora Welty,1980
+book,Delta Wedding,Eudora Welty,1946
+book,The Optimist's Daughter,Eudora Welty,1972
+book,Losing Battles,Eudora Welty,1970
+book,The Robber Bridegroom,Eudora Welty,1942
+book,The Ponder Heart,Eudora Welty,1954
+book,One Writer's Beginnings,Eudora Welty,1984
+book,The Eye of the Story,Eudora Welty,1978
+book,The Golden Apples,Eudora Welty,1949
+book,The Wide Net,Eudora Welty,1943
+book,A Curtain of Green,Eudora Welty,1941
+book,The Bride of the Innisfallen,Eudora Welty,1955
+book,The Collected Stories,Eudora Welty,1980
+book,The Norton Book of Friendship,Eudora Welty,1991
+book,The Norton Book of American Autobiography,Eudora Welty,1991
+book,1984,George Orwell,1949
+book,Animal Farm,George Orwell,1945
+book,Brave New World,Aldous Huxley,1932
+book,Fahrenheit 451,Ray Bradbury,1953
+book,The Catcher in the Rye,J.D. Salinger,1951
+book,To Kill a Mockingbird,Harper Lee,1960
+book,The Adventures of Huckleberry Finn,Mark Twain,1885
+book,The Great Gatsby,F. Scott Fitzgerald,1925
+book,Of Mice and Men,John Steinbeck,1937
+book,The Grapes of Wrath,John Steinbeck,1939
+book,Lord of the Flies,William Golding,1954
+book,The Lord of the Rings,J.R.R. Tolkien,1954
+book,The Hobbit,J.R.R. Tolkien,1937
+book,The Chronicles of Narnia,C.S. Lewis,1950
+book,A Clockwork Orange,Anthony Burgess,1962
+book,Lolita,Vladimir Nabokov,1955
+book,The Satanic Verses,Salman Rushdie,1988
+book,The Handmaid's Tale,Margaret Atwood,1985
+book,Beloved,Toni Morrison,1987
+book,The Color Purple,Alice Walker,1982
+book,Native Son,Richard Wright,1940
+book,Invisible Man,Ralph Ellison,1952
+book,Go Tell It on the Mountain,James Baldwin,1953
+book,Giovanni's Room,James Baldwin,1956
+book,Another Country,James Baldwin,1962
+book,If Beale Street Could Talk,James Baldwin,1974
+book,The Autobiography of Malcolm X,Malcolm X,1965
+book,The Fire Next Time,James Baldwin,1963
+book,Notes of a Native Son,James Baldwin,1955
+book,Nobody Knows My Name,James Baldwin,1961
+book,The Devil Finds Work,James Baldwin,1976
+book,No Name in the Street,James Baldwin,1972
+book,The Evidence of Things Not Seen,James Baldwin,1985
+book,The Price of the Ticket,James Baldwin,1985
+book,The Cross of Redemption,James Baldwin,2010
+book,I Am Not Your Negro,James Baldwin,2017
+book,The Women of Brewster Place,Gloria Naylor,1982
+book,Linden Hills,Gloria Naylor,1985
+book,Mama Day,Gloria Naylor,1988
+book,Bailey's Cafe,Gloria Naylor,1992
+book,The Men of Brewster Place,Gloria Naylor,1998
+book,1996,Gloria Naylor,2005
+book,Kindred,Octavia Butler,1979
+book,Parable of the Sower,Octavia Butler,1993
+book,Parable of the Talents,Octavia Butler,1998
+book,Wild Seed,Octavia Butler,1980
+book,Mind of My Mind,Octavia Butler,1977
+book,Clay's Ark,Octavia Butler,1984
+book,Patternmaster,Octavia Butler,1976
+book,Survivor,Octavia Butler,1978
+book,Fledgling,Octavia Butler,2005
+book,Bloodchild and Other Stories,Octavia Butler,1995
+book,Seed to Harvest,Octavia Butler,2007
+book,Lilith's Brood,Octavia Butler,2000
+book,The Parable Series,Octavia Butler,2007
+book,The Complete Stories,Flannery O'Connor,1971
+book,Wise Blood,Flannery O'Connor,1952
+book,The Violent Bear It Away,Flannery O'Connor,1960
+book,A Good Man Is Hard to Find,Flannery O'Connor,1955
+book,Everything That Rises Must Converge,Flannery O'Connor,1965
+book,Mystery and Manners,Flannery O'Connor,1969
+book,The Habit of Being,Flannery O'Connor,1979
+book,A Prayer Journal,Flannery O'Connor,2013
+book,The Complete Stories,Eudora Welty,1980
+book,Delta Wedding,Eudora Welty,1946
+book,The Optimist's Daughter,Eudora Welty,1972
+book,Losing Battles,Eudora Welty,1970
+book,The Robber Bridegroom,Eudora Welty,1942
+book,The Ponder Heart,Eudora Welty,1954
+book,One Writer's Beginnings,Eudora Welty,1984
+book,The Eye of the Story,Eudora Welty,1978
+book,The Golden Apples,Eudora Welty,1949
+book,The Wide Net,Eudora Welty,1943
+book,A Curtain of Green,Eudora Welty,1941
+book,The Bride of the Innisfallen,Eudora Welty,1955
+book,The Collected Stories,Eudora Welty,1980
+book,The Norton Book of Friendship,Eudora Welty,1991
+book,The Norton Book of American Autobiography,Eudora Welty,1991
+book,The Joy of Cooking,Irma S. Rombauer,1931
+book,Mastering the Art of French Cooking,Julia Child,1961
+book,The Fannie Farmer Cookbook,Fannie Farmer,1896
+book,The Silver Palate Cookbook,Julee Rosso and Sheila Lukins,1982
+book,The Moosewood Cookbook,Mollie Katzen,1977
+book,The New York Times Cookbook,Craig Claiborne,1961
+book,The Art of Simple Food,Alice Waters,2007
+book,How to Cook Everything,Mark Bittman,1998
+book,The Professional Chef,The Culinary Institute of America,1976
+book,Larousse Gastronomique,Prosper Montagné,1938
+book,"Salt, Fat, Acid, Heat",Samin Nosrat,2017
+book,The Food Lab,J. Kenji López-Alt,2015
+book,My Life in France,Julia Child,2006
+book,Barefoot Contessa Cookbook,Ina Garten,1999
+book,The Pioneer Woman Cooks,Ree Drummond,2009
+book,Magnolia Table,Joanna Gaines,2018
+book,Cravings,Chrissy Teigen,2016
+book,The Smitten Kitchen Cookbook,Deb Perelman,2012
+book,Dinner: A Love Story,Jenny Rosenstrach,2012
+book,The Sprouted Kitchen,Sara Forte,2012
+book,The Complete Asian Cookbook,Charmaine Solomon,1976
+book,Essentials of Classic Italian Cooking,Marcella Hazan,1992
+book,The Complete Mexican Cookbook,Diana Kennedy,1989
+book,The Complete Indian Cookbook,Madhur Jaffrey,1982
+book,The Complete Middle Eastern Cookbook,Tess Mallos,1979
+book,The Complete Chinese Cookbook,Ken Hom,1984
+book,The Complete Thai Cookbook,David Thompson,2002
+book,The Complete Japanese Cookbook,Emi Kazuko,2000
+book,The Complete Korean Cookbook,Jung S. Lee,1999
+book,The Complete Vietnamese Cookbook,Ghillie Basan,2001
+book,The Complete Vegetarian Cookbook,America's Test Kitchen,2015
+book,The Complete Vegan Cookbook,Isa Chandra Moskowitz,2005
+book,The Complete Gluten-Free Cookbook,America's Test Kitchen,2014
+book,The Complete Keto Cookbook,America's Test Kitchen,2019
+book,The Complete Paleo Cookbook,America's Test Kitchen,2018
+book,The Complete Mediterranean Cookbook,America's Test Kitchen,2016
+book,The Complete Diabetes Cookbook,America's Test Kitchen,2017
+book,The Complete Heart-Healthy Cookbook,America's Test Kitchen,2018
+book,The Complete Low-Sodium Cookbook,America's Test Kitchen,2019
+book,The Complete Anti-Inflammatory Cookbook,America's Test Kitchen,2020
+book,The Complete Baking Book,America's Test Kitchen,2013
+book,The Complete Cake Book,America's Test Kitchen,2014
+book,The Complete Cookie Book,America's Test Kitchen,2015
+book,The Complete Bread Book,America's Test Kitchen,2016
+book,The Complete Pie Book,America's Test Kitchen,2017
+book,The Complete Pastry Book,America's Test Kitchen,2018
+book,The Complete Chocolate Book,America's Test Kitchen,2019
+book,The Complete Ice Cream Book,America's Test Kitchen,2020
+book,The Complete Candy Book,America's Test Kitchen,2021
+book,The Complete Confectionery Book,America's Test Kitchen,2022
+book,The Complete Home Improvement Manual,Reader's Digest,1991
+book,The Complete Gardener's Manual,Reader's Digest,1992
+book,The Complete Woodworker's Manual,Reader's Digest,1993
+book,The Complete Sewing Manual,Reader's Digest,1994
+book,The Complete Knitting Manual,Reader's Digest,1995
+book,The Complete Crochet Manual,Reader's Digest,1996
+book,The Complete Quilting Manual,Reader's Digest,1997
+book,The Complete Embroidery Manual,Reader's Digest,1998
+book,The Complete Beading Manual,Reader's Digest,1999
+book,The Complete Jewelry Making Manual,Reader's Digest,2000
+book,The Complete Computer Manual,Reader's Digest,2001
+book,The Complete Internet Manual,Reader's Digest,2002
+book,The Complete Smartphone Manual,Reader's Digest,2003
+book,The Complete Tablet Manual,Reader's Digest,2004
+book,The Complete Social Media Manual,Reader's Digest,2005
+book,The Complete Photography Manual,Reader's Digest,2006
+book,The Complete Video Editing Manual,Reader's Digest,2007
+book,The Complete Graphic Design Manual,Reader's Digest,2008
+book,The Complete Web Design Manual,Reader's Digest,2009
+book,The Complete App Development Manual,Reader's Digest,2010
+book,The Complete Fitness Manual,Reader's Digest,2011
+book,The Complete Yoga Manual,Reader's Digest,2012
+book,The Complete Pilates Manual,Reader's Digest,2013
+book,The Complete Meditation Manual,Reader's Digest,2014
+book,The Complete Nutrition Manual,Reader's Digest,2015
+book,The Complete First Aid Manual,Reader's Digest,2016
+book,The Complete Emergency Preparedness Manual,Reader's Digest,2017
+book,The Complete Survival Manual,Reader's Digest,2018
+book,The Complete Self-Defense Manual,Reader's Digest,2019
+book,The Complete Mental Health Manual,Reader's Digest,2020
+book,The Complete Business Manual,Reader's Digest,2021
+book,The Complete Finance Manual,Reader's Digest,2022
+book,The Complete Investment Manual,Reader's Digest,2023
+book,The Complete Tax Manual,Reader's Digest,2024
+book,The Complete Retirement Planning Manual,Reader's Digest,2025
+book,The Complete Estate Planning Manual,Reader's Digest,2026
+book,The Complete Insurance Manual,Reader's Digest,2027
+book,The Complete Real Estate Manual,Reader's Digest,2028
+book,The Complete Marketing Manual,Reader's Digest,2029
+book,The Complete Sales Manual,Reader's Digest,2030
+book,The Notebook,Nicholas Sparks,1996
+book,A Walk to Remember,Nicholas Sparks,1999
+book,The Last Song,Nicholas Sparks,2009
+book,Message in a Bottle,Nicholas Sparks,1998
+book,Dear John,Nicholas Sparks,2006
+book,The Lucky One,Nicholas Sparks,2008
+book,Safe Haven,Nicholas Sparks,2010
+book,The Best of Me,Nicholas Sparks,2011
+book,The Longest Ride,Nicholas Sparks,2013
+book,See Me,Nicholas Sparks,2015
+book,The Duke and I,Julia Quinn,2000
+book,The Viscount Who Loved Me,Julia Quinn,2000
+book,An Offer From a Gentleman,Julia Quinn,2001
+book,Romancing Mister Bridgerton,Julia Quinn,2002
+book,"To Sir Phillip, With Love",Julia Quinn,2003
+book,When He Was Wicked,Julia Quinn,2004
+book,It's In His Kiss,Julia Quinn,2005
+book,On the Way to the Wedding,Julia Quinn,2006
+book,The Other Miss Bridgerton,Julia Quinn,2018
+book,First Comes Scandal,Julia Quinn,2020
+book,Beach Read,Emily Henry,2020
+book,People We Meet on Vacation,Emily Henry,2021
+book,Book Lovers,Emily Henry,2022
+book,Happy Place,Emily Henry,2023
+book,Funny Story,Emily Henry,2024
+book,The Hating Game,Sally Thorne,2016
+book,99 Percent Mine,Sally Thorne,2019
+book,Second First Impressions,Sally Thorne,2021
+book,The Unhoneymooners,Christina Lauren,2019
+book,The Soulmate Equation,Christina Lauren,2021
+book,Carrie,Stephen King,1974
+book,Salem's Lot,Stephen King,1975
+book,The Shining,Stephen King,1977
+book,The Stand,Stephen King,1978
+book,The Dead Zone,Stephen King,1979
+book,Firestarter,Stephen King,1980
+book,Cujo,Stephen King,1981
+book,Christine,Stephen King,1983
+book,Pet Sematary,Stephen King,1983
+book,It,Stephen King,1986
+book,Misery,Stephen King,1987
+book,The Tommyknockers,Stephen King,1987
+book,The Dark Half,Stephen King,1989
+book,Needful Things,Stephen King,1991
+book,Gerald's Game,Stephen King,1992
+book,Dolores Claiborne,Stephen King,1992
+book,Insomnia,Stephen King,1994
+book,Rose Madder,Stephen King,1995
+book,The Green Mile,Stephen King,1996
+book,Bag of Bones,Stephen King,1998
+book,The Haunting of Hill House,Shirley Jackson,1959
+book,We Have Always Lived in the Castle,Shirley Jackson,1962
+book,The Lottery and Other Stories,Shirley Jackson,1949
+book,The Turn of the Screw,Henry James,1898
+book,Dracula,Bram Stoker,1897
+book,Frankenstein,Mary Shelley,1818
+book,The Strange Case of Dr. Jekyll and Mr. Hyde,Robert Louis Stevenson,1886
+book,The Picture of Dorian Gray,Oscar Wilde,1890
+book,The Phantom of the Opera,Gaston Leroux,1909
+book,The Call of Cthulhu,H.P. Lovecraft,1928
+book,The Cat in the Hat,Dr. Seuss,1957
+book,Green Eggs and Ham,Dr. Seuss,1960
+book,How the Grinch Stole Christmas!,Dr. Seuss,1957
+book,One Fish Two Fish Red Fish Blue Fish,Dr. Seuss,1960
+book,The Lorax,Dr. Seuss,1971
+book,"Oh, the Places You'll Go!",Dr. Seuss,1990
+book,Horton Hears a Who!,Dr. Seuss,1954
+book,Yertle the Turtle,Dr. Seuss,1958
+book,Fox in Socks,Dr. Seuss,1965
+book,Hop on Pop,Dr. Seuss,1963
+book,Charlie and the Chocolate Factory,Roald Dahl,1964
+book,Charlie and the Great Glass Elevator,Roald Dahl,1972
+book,James and the Giant Peach,Roald Dahl,1961
+book,Matilda,Roald Dahl,1988
+book,The BFG,Roald Dahl,1982
+book,The Witches,Roald Dahl,1983
+book,Fantastic Mr. Fox,Roald Dahl,1970
+book,The Twits,Roald Dahl,1980
+book,George's Marvellous Medicine,Roald Dahl,1981
+book,"Danny, the Champion of the World",Roald Dahl,1975
+book,Charlotte's Web,E.B. White,1952
+book,Stuart Little,E.B. White,1945
+book,The Trumpet of the Swan,E.B. White,1970
+book,The Wind in the Willows,Kenneth Grahame,1908
+book,Winnie-the-Pooh,A.A. Milne,1926
+book,The House at Pooh Corner,A.A. Milne,1928
+book,Alice's Adventures in Wonderland,Lewis Carroll,1865
+book,Through the Looking-Glass,Lewis Carroll,1871
+book,Peter Pan,J.M. Barrie,1911
+book,The Secret Garden,Frances Hodgson Burnett,1911
+book,Hamlet,William Shakespeare,1603
+book,Romeo and Juliet,William Shakespeare,1597
+book,Macbeth,William Shakespeare,1606
+book,King Lear,William Shakespeare,1606
+book,Othello,William Shakespeare,1604
+book,A Midsummer Night's Dream,William Shakespeare,1596
+book,Much Ado About Nothing,William Shakespeare,1599
+book,The Taming of the Shrew,William Shakespeare,1592
+book,Twelfth Night,William Shakespeare,1602
+book,The Tempest,William Shakespeare,1611
+book,The Complete Poems of Emily Dickinson,Emily Dickinson,1955
+book,Leaves of Grass,Walt Whitman,1855
+book,The Collected Poems of Robert Frost,Robert Frost,1939
+book,The Waste Land,T.S. Eliot,1922
+book,The Love Song of J. Alfred Prufrock,T.S. Eliot,1915
+book,The Raven and Other Poems,Edgar Allan Poe,1845
+book,Songs of Innocence and Experience,William Blake,1789
+book,The Rime of the Ancient Mariner,Samuel Taylor Coleridge,1798
+book,Paradise Lost,John Milton,1667
+book,The Divine Comedy,Dante Alighieri,1320
+book,Shane,Jack Schaefer,1949
+book,True Grit,Charles Portis,1968
+book,Lonesome Dove,Larry McMurtry,1985
+book,The Virginian,Owen Wister,1902
+book,Riders of the Purple Sage,Zane Grey,1912
+book,The Ox-Bow Incident,Walter Van Tilburg Clark,1940
+book,The Big Sky,A.B. Guthrie Jr.,1947
+book,The Way West,A.B. Guthrie Jr.,1949
+book,The Searchers,Alan Le May,1954
+book,Hondo,Louis L'Amour,1953
+book,Sackett,Louis L'Amour,1961
+book,The Daybreakers,Louis L'Amour,1960
+book,Sackett's Land,Louis L'Amour,1974
+book,To the Far Blue Mountains,Louis L'Amour,1976
+book,The Warrior's Path,Louis L'Amour,1980
+book,Jubal Sackett,Louis L'Amour,1985
+book,Ride the River,Louis L'Amour,1983
+book,The Sackett Brand,Louis L'Amour,1965
+book,The Sky-Liners,Louis L'Amour,1967
+book,The Man from the Broken Hills,Louis L'Amour,1975
+book,Watchmen,Alan Moore,1987
+book,Maus,Art Spiegelman,1986
+book,Persepolis,Marjane Satrapi,2000
+book,Fun Home,Alison Bechdel,2006
+book,Blankets,Craig Thompson,2003
+book,American Born Chinese,Gene Luen Yang,2006
+book,Ghost World,Daniel Clowes,1997
+book,"Jimmy Corrigan, the Smartest Kid on Earth",Chris Ware,2000
+book,Palestine,Joe Sacco,1993
+book,Safe Area Gorazde,Joe Sacco,2000
+book,Saga,Brian K. Vaughan,2012
+book,Y: The Last Man,Brian K. Vaughan,2002
+book,Ex Machina,Brian K. Vaughan,2004
+book,Paper Girls,Brian K. Vaughan,2015
+book,The Walking Dead,Robert Kirkman,2003
+book,Invincible,Robert Kirkman,2003
+book,Bone,Jeff Smith,1991
+book,Scott Pilgrim vs. the World,Bryan Lee O'Malley,2004
+book,Seconds,Bryan Lee O'Malley,2014
+book,Lost at Sea,Bryan Lee O'Malley,2003
+book,A Walk in the Woods,Bill Bryson,1998
+book,In a Sunburned Country,Bill Bryson,2000
+book,Notes from a Small Island,Bill Bryson,1995
+book,The Lost Continent,Bill Bryson,1989
+book,Neither Here Nor There,Bill Bryson,1991
+book,The Great Railway Bazaar,Paul Theroux,1975
+book,The Old Patagonian Express,Paul Theroux,1979
+book,Dark Star Safari,Paul Theroux,2002
+book,The Tao of Travel,Paul Theroux,2011
+book,Ghost Train to the Eastern Star,Paul Theroux,2008
+book,The Travels of Marco Polo,Marco Polo,1300
+book,Gulliver's Travels,Jonathan Swift,1726
+book,Around the World in Eighty Days,Jules Verne,1872
+book,Journey to the Center of the Earth,Jules Verne,1864
+book,Twenty Thousand Leagues Under the Sea,Jules Verne,1870
+book,The Kon-Tiki Expedition,Thor Heyerdahl,1948
+book,The Long Walk,Slavomir Rawicz,1956
+book,Into the Wild,Jon Krakauer,1996
+book,Wild,Cheryl Strayed,2012
+book,"Eat, Pray, Love",Elizabeth Gilbert,2006
+book,A Brief History of Time,Stephen Hawking,1988
+book,The Universe in a Nutshell,Stephen Hawking,2001
+book,The Grand Design,Stephen Hawking,2010
+book,Cosmos,Carl Sagan,1980
+book,The Demon-Haunted World,Carl Sagan,1995
+book,Contact,Carl Sagan,1985
+book,The Selfish Gene,Richard Dawkins,1976
+book,The Blind Watchmaker,Richard Dawkins,1986
+book,The God Delusion,Richard Dawkins,2006
+book,The Ancestor's Tale,Richard Dawkins,2004
+book,Astrophysics for People in a Hurry,Neil deGrasse Tyson,2017
+book,Death by Black Hole,Neil deGrasse Tyson,2007
+book,Space Chronicles,Neil deGrasse Tyson,2012
+book,The Elegant Universe,Brian Greene,1999
+book,The Fabric of the Cosmos,Brian Greene,2004
+book,The Hidden Reality,Brian Greene,2011
+book,The Innovators,Walter Isaacson,2014
+book,Steve Jobs,Walter Isaacson,2011
+book,Leonardo da Vinci,Walter Isaacson,2017
+book,Einstein,Walter Isaacson,2007
+book,The Story of Art,E.H. Gombrich,1950
+book,Ways of Seeing,John Berger,1972
+book,The Art Book,Phaidon Press,1994
+book,The Lives of the Artists,Giorgio Vasari,1550
+book,The Agony and the Ecstasy,Irving Stone,1961
+book,Lust for Life,Irving Stone,1934
+book,The Painted Word,Tom Wolfe,1975
+book,Art and Illusion,E.H. Gombrich,1960
+book,The Power of Images,David Freedberg,1989
+book,Art Since 1900,Hal Foster,2004
+book,Mozart: A Life,Paul Johnson,2013
+book,Beethoven: Anguish and Triumph,Jan Swafford,2014
+book,Bach: Music in the Castle of Heaven,John Eliot Gardiner,2013
+book,The Beatles,Hunter Davies,1968
+book,Bob Dylan: Chronicles,Bob Dylan,2004
+book,Just Kids,Patti Smith,2010
+book,Life,Keith Richards,2010
+book,Clapton,Eric Clapton,2007
+book,Scar Tissue,Anthony Kiedis,2004
+book,The Dirt,Mötley Crüe,2001
+movie,Jurassic World: Dominion,Colin Trevorrow,2022
+movie,Mission: Impossible - Dead Reckoning Part One,Christopher McQuarrie,2023
+movie,Indiana Jones and the Dial of Destiny,James Mangold,2023
+movie,The Lost City,Aaron and Adam Nee,2022
+movie,Uncharted,Ruben Fleischer,2022
+movie,Oppenheimer,Christopher Nolan,2023
+movie,Barbie,Greta Gerwig,2023
+movie,Killers of the Flower Moon,Martin Scorsese,2023
+movie,Poor Things,Yorgos Lanthimos,2023
+movie,The Holdovers,Alexander Payne,2023
+movie,Past Lives,Celine Song,2023
+movie,Anatomy of a Fall,Justine Triet,2023
+movie,The Zone of Interest,Jonathan Glazer,2023
+movie,American Fiction,Cord Jefferson,2023
+movie,May December,Todd Haynes,2023
+movie,The Godfather,Francis Ford Coppola,1972
+movie,The Shawshank Redemption,Frank Darabont,1994
+movie,Pulp Fiction,Quentin Tarantino,1994
+movie,Fight Club,David Fincher,1999
+movie,The Matrix,Lana and Lilly Wachowski,1999
+movie,Inception,Christopher Nolan,2010
+movie,Interstellar,Christopher Nolan,2014
+movie,Mad Max: Fury Road,George Miller,2015
+movie,Parasite,Bong Joon-ho,2019
+movie,Joker,Todd Phillips,2019
+movie,Dune,Denis Villeneuve,2021
+movie,No Time to Die,Cary Joji Fukunaga,2021
+movie,Spider-Man: No Way Home,Jon Watts,2021
+movie,The Batman,Matt Reeves,2022
+movie,Top Gun: Maverick,Joseph Kosinski,2022
+movie,Avatar: The Way of Water,James Cameron,2022
+movie,Black Panther: Wakanda Forever,Ryan Coogler,2022
+movie,Everything Everywhere All at Once,Daniel Kwan and Daniel Scheinert,2022
+movie,The Fabelmans,Steven Spielberg,2022
+movie,Tár,Todd Field,2022
+movie,Nomadland,Chloé Zhao,2020
+movie,The Trial of the Chicago 7,Aaron Sorkin,2020
+movie,Minari,Lee Isaac Chung,2020
+movie,Sound of Metal,Darius Marder,2020
+movie,Promising Young Woman,Emerald Fennell,2020
+movie,The Father,Florian Zeller,2020
+movie,Judas and the Black Messiah,Shaka King,2021
+movie,The Green Knight,David Lowery,2021
+movie,The French Dispatch,Wes Anderson,2021
+movie,Licorice Pizza,Paul Thomas Anderson,2021
+movie,West Side Story,Steven Spielberg,2021
+movie,Nightmare Alley,Guillermo del Toro,2021
+movie,The Power of the Dog,Jane Campion,2021
+movie,CODA,Sian Heder,2021
+movie,Drive My Car,Ryusuke Hamaguchi,2021
+movie,The Worst Person in the World,Joachim Trier,2021
+movie,Flee,Jonas Poher Rasmussen,2021
+movie,The Lost Daughter,Maggie Gyllenhaal,2021
+movie,Parallel Mothers,Pedro Almodóvar,2021
+movie,Belfast,Kenneth Branagh,2021
+movie,King Richard,Reinaldo Marcus Green,2021
+movie,Don't Look Up,Adam McKay,2021
+movie,The Tragedy of Macbeth,Joel Coen,2021
+movie,Spencer,Pablo Larraín,2021
+movie,"Tick, Tick... Boom!",Lin-Manuel Miranda,2021
+movie,The Eyes of Tammy Faye,Michael Showalter,2021
+movie,Being the Ricardos,Aaron Sorkin,2021
+movie,Cyrano,Joe Wright,2021
+movie,The Card Counter,Paul Schrader,2021
+movie,The Last Duel,Ridley Scott,2021
+movie,House of Gucci,Ridley Scott,2021
+movie,Shang-Chi and the Legend of the Ten Rings,Destin Daniel Cretton,2021
+movie,Eternals,Chloé Zhao,2021
+movie,Black Widow,Cate Shortland,2021
+movie,Venom: Let There Be Carnage,Andy Serkis,2021
+movie,The Suicide Squad,James Gunn,2021
+movie,Godzilla vs. Kong,Adam Wingard,2021
+movie,A Quiet Place Part II,John Krasinski,2021
+movie,Halloween Kills,David Gordon Green,2021
+movie,Candyman,Nia DaCosta,2021
+movie,The Conjuring: The Devil Made Me Do It,Michael Chaves,2021
+movie,Malignant,James Wan,2021
+movie,Old,M. Night Shyamalan,2021
+movie,The Forever Purge,Everardo Gout,2021
+movie,Nobody,Ilya Naishuller,2021
+movie,The Marksman,Robert Lorenz,2021
+movie,Wrath of Man,Guy Ritchie,2021
+movie,The Hitman's Wife's Bodyguard,Patrick Hughes,2021
+movie,F9: The Fast Saga,Justin Lin,2021
+movie,Mission: Impossible 7,Christopher McQuarrie,2023
+movie,John Wick: Chapter 4,Chad Stahelski,2023
+movie,The Equalizer 3,Antoine Fuqua,2023
+movie,Extraction 2,Sam Hargrave,2023
+movie,The Gray Man,Anthony and Joe Russo,2022
+movie,Bullet Train,David Leitch,2022
+movie,The Northman,Robert Eggers,2022
+movie,Ambulance,Michael Bay,2022
+movie,The Adam Project,Shawn Levy,2022
+movie,Free Guy,Shawn Levy,2021
+movie,The Tomorrow War,Chris McKay,2021
+movie,Chaos Walking,Doug Liman,2021
+movie,Reminiscence,Lisa Joy,2021
+movie,Infinite,Antoine Fuqua,2021
+movie,Boss Level,Joe Carnahan,2021
+movie,Outside the Wire,Mikael Håfström,2021
+movie,Stowaway,Joe Penna,2021
+movie,Voyagers,Neil Burger,2021
+movie,Cosmic Sin,Edward Drake,2021
+movie,The Midnight Sky,George Clooney,2020
+movie,Tenet,Christopher Nolan,2020
+movie,The Invisible Man,Leigh Whannell,2020
+movie,Underwater,William Eubank,2020
+movie,The Call of the Wild,Chris Sanders,2020
+movie,Onward,Dan Scanlon,2020
+movie,Soul,Pete Docter,2020
+movie,Wolfwalkers,Tomm Moore,2020
+movie,The Croods: A New Age,Joel Crawford,2020
+movie,Raya and the Last Dragon,Don Hall,2021
+movie,Luca,Enrico Casarosa,2021
+movie,Encanto,Jared Bush,2021
+movie,Turning Red,Domee Shi,2022
+movie,Lightyear,Angus MacLane,2022
+movie,Strange World,Don Hall,2022
+movie,Puss in Boots: The Last Wish,Joel Crawford,2022
+movie,The Bad Guys,Pierre Perifel,2022
+movie,DC League of Super-Pets,Jared Stern,2022
+movie,Minions: The Rise of Gru,Kyle Balda,2022
+movie,Super Mario Bros. Movie,Aaron Horvath,2023
+movie,Spider-Man: Across the Spider-Verse,Joaquim Dos Santos,2023
+movie,Elemental,Peter Sohn,2023
+movie,Teenage Mutant Ninja Turtles: Mutant Mayhem,Jeff Rowe,2023
+movie,Trolls Band Together,Walt Dohrn,2023
+movie,Wish,Chris Buck,2023
+movie,Migration,Benjamin Renner,2023
+movie,Leo,Robert Marianetti,2023
+movie,Chicken Run: Dawn of the Nugget,Sam Fell,2023
+movie,"Ruby Gillman, Teenage Kraken",Kirk DeMicco,2023
+movie,Nimona,Nick Bruno,2023
+movie,The Little Mermaid,Rob Marshall,2023
+movie,The Color Purple,Blitz Bazawule,2023
+movie,Wonka,Paul King,2023
+movie,Mean Girls,Samantha Jayne,2024
+movie,Bob Marley: One Love,Reinaldo Marcus Green,2024
+movie,Joker: Folie à Deux,Todd Phillips,2024
+movie,Mamma Mia! Here We Go Again,Ol Parker,2018
+movie,La La Land,Damien Chazelle,2016
+movie,The Greatest Showman,Michael Gracey,2017
+movie,A Star Is Born,Bradley Cooper,2018
+movie,Bohemian Rhapsody,Bryan Singer,2018
+movie,Rocketman,Dexter Fletcher,2019
+movie,Cats,Tom Hooper,2019
+movie,In the Heights,Jon M. Chu,2021
+movie,Dear Evan Hansen,Stephen Chbosky,2021
+movie,"Tick, Tick... Boom!",Lin-Manuel Miranda,2021
+movie,Cyrano,Joe Wright,2021
+movie,Matilda the Musical,Matthew Warchus,2022
+movie,Roald Dahl's Matilda the Musical,Matthew Warchus,2022
+movie,Spirited,Sean Anders,2022
+movie,Disenchanted,Adam Shankman,2022
+movie,"Lyle, Lyle, Crocodile",Josh Gordon,2022
+movie,I Wanna Dance with Somebody,Kasi Lemmons,2022
+movie,Elvis,Baz Luhrmann,2022
+movie,Weird: The Al Yankovic Story,Eric Appel,2022
+movie,Casablanca,Michael Curtiz,1942
+movie,Citizen Kane,Orson Welles,1941
+movie,Gone with the Wind,Victor Fleming,1939
+movie,The Wizard of Oz,Victor Fleming,1939
+movie,Snow White and the Seven Dwarfs,Walt Disney,1937
+movie,Psycho,Alfred Hitchcock,1960
+movie,Vertigo,Alfred Hitchcock,1958
+movie,Rear Window,Alfred Hitchcock,1954
+movie,North by Northwest,Alfred Hitchcock,1959
+movie,The Birds,Alfred Hitchcock,1963
+movie,12 Angry Men,Sidney Lumet,1957
+movie,On the Waterfront,Elia Kazan,1954
+movie,A Streetcar Named Desire,Elia Kazan,1951
+movie,Sunset Boulevard,Billy Wilder,1950
+movie,Some Like It Hot,Billy Wilder,1959
+movie,The Apartment,Billy Wilder,1960
+movie,Double Indemnity,Billy Wilder,1944
+movie,The Bridge on the River Kwai,David Lean,1957
+movie,Lawrence of Arabia,David Lean,1962
+movie,Doctor Zhivago,David Lean,1965
+movie,The Sound of Music,Robert Wise,1965
+movie,West Side Story,Robert Wise,1961
+movie,My Fair Lady,George Cukor,1964
+movie,Singin' in the Rain,Stanley Donen,1952
+movie,An American in Paris,Vincente Minnelli,1951
+movie,Gigi,Vincente Minnelli,1958
+movie,The King and I,Walter Lang,1956
+movie,Oklahoma!,Fred Zinnemann,1955
+movie,Carousel,Henry King,1956
+movie,South Pacific,Joshua Logan,1958
+movie,The Music Man,Morton DaCosta,1962
+movie,Mary Poppins,Robert Stevenson,1964
+movie,Chitty Chitty Bang Bang,Ken Hughes,1968
+movie,Bedknobs and Broomsticks,Robert Stevenson,1971
+movie,Willy Wonka & the Chocolate Factory,Mel Stuart,1971
+movie,The Rocky Horror Picture Show,Jim Sharman,1975
+movie,Grease,Randal Kleiser,1978
+movie,Saturday Night Fever,John Badham,1977
+movie,Fame,Alan Parker,1980
+movie,Flashdance,Adrian Lyne,1983
+movie,Footloose,Herbert Ross,1984
+movie,Dirty Dancing,Emile Ardolino,1987
+movie,The Little Mermaid,Ron Clements,1989
+movie,Beauty and the Beast,Gary Trousdale,1991
+movie,Aladdin,Ron Clements,1992
+movie,The Lion King,Roger Allers,1994
+movie,Pocahontas,Mike Gabriel,1995
+movie,The Hunchback of Notre Dame,Gary Trousdale,1996
+movie,Hercules,Ron Clements,1997
+movie,Mulan,Tony Bancroft,1998
+movie,Tarzan,Chris Buck,1999
+movie,Fantasia,Walt Disney,1940
+movie,Dumbo,Walt Disney,1941
+movie,Bambi,Walt Disney,1942
+movie,Cinderella,Walt Disney,1950
+movie,Alice in Wonderland,Walt Disney,1951
+movie,Peter Pan,Walt Disney,1953
+movie,Lady and the Tramp,Walt Disney,1955
+movie,Sleeping Beauty,Walt Disney,1959
+movie,101 Dalmatians,Walt Disney,1961
+movie,The Jungle Book,Walt Disney,1967
+movie,The Aristocats,Walt Disney,1970
+movie,Robin Hood,Walt Disney,1973
+movie,The Many Adventures of Winnie the Pooh,Walt Disney,1977
+movie,The Rescuers,Walt Disney,1977
+movie,The Fox and the Hound,Walt Disney,1981
+movie,The Black Cauldron,Walt Disney,1985
+movie,The Great Mouse Detective,Walt Disney,1986
+movie,Oliver & Company,Walt Disney,1988
+movie,The Rescuers Down Under,Walt Disney,1990
+movie,A Goofy Movie,Walt Disney,1995
+movie,Toy Story,Pixar,1995
+movie,A Bug's Life,Pixar,1998
+movie,Toy Story 2,Pixar,1999
+movie,"Monsters, Inc.",Pixar,2001
+movie,Finding Nemo,Pixar,2003
+movie,The Incredibles,Pixar,2004
+movie,Cars,Pixar,2006
+movie,Ratatouille,Pixar,2007
+movie,WALL-E,Pixar,2008
+movie,Up,Pixar,2009
+movie,Toy Story 3,Pixar,2010
+movie,Cars 2,Pixar,2011
+movie,Brave,Pixar,2012
+movie,Monsters University,Pixar,2013
+movie,Inside Out,Pixar,2015
+movie,The Good Dinosaur,Pixar,2015
+movie,Finding Dory,Pixar,2016
+movie,Cars 3,Pixar,2017
+movie,Coco,Pixar,2017
+movie,Incredibles 2,Pixar,2018
+movie,Toy Story 4,Pixar,2019
+movie,Onward,Pixar,2020
+movie,Soul,Pixar,2020
+movie,Luca,Pixar,2021
+movie,Turning Red,Pixar,2022
+movie,Lightyear,Pixar,2022
+movie,Elemental,Pixar,2023
+movie,The Dark Knight,Christopher Nolan,2008
+movie,Inception,Christopher Nolan,2010
+movie,Interstellar,Christopher Nolan,2014
+movie,Dunkirk,Christopher Nolan,2017
+movie,Tenet,Christopher Nolan,2020
+movie,Oppenheimer,Christopher Nolan,2023
+movie,The Lord of the Rings: The Fellowship of the Ring,Peter Jackson,2001
+movie,The Lord of the Rings: The Two Towers,Peter Jackson,2002
+movie,The Lord of the Rings: The Return of the King,Peter Jackson,2003
+movie,The Hobbit: An Unexpected Journey,Peter Jackson,2012
+movie,The Hobbit: The Desolation of Smaug,Peter Jackson,2013
+movie,The Hobbit: The Battle of the Five Armies,Peter Jackson,2014
+movie,Avatar,James Cameron,2009
+movie,Avatar: The Way of Water,James Cameron,2022
+movie,Titanic,James Cameron,1997
+movie,Terminator 2: Judgment Day,James Cameron,1991
+movie,Aliens,James Cameron,1986
+movie,The Terminator,James Cameron,1984
+movie,True Lies,James Cameron,1994
+movie,The Abyss,James Cameron,1989
+movie,Spider-Man,Sam Raimi,2002
+movie,Spider-Man 2,Sam Raimi,2004
+movie,Spider-Man 3,Sam Raimi,2007
+movie,Iron Man,Jon Favreau,2008
+movie,Iron Man 2,Jon Favreau,2010
+movie,Iron Man 3,Shane Black,2013
+movie,Captain America: The First Avenger,Joe Johnston,2011
+movie,Captain America: The Winter Soldier,Anthony and Joe Russo,2014
+movie,Captain America: Civil War,Anthony and Joe Russo,2016
+movie,Thor,Kenneth Branagh,2011
+movie,Thor: The Dark World,Alan Taylor,2013
+movie,Thor: Ragnarok,Taika Waititi,2017
+movie,Thor: Love and Thunder,Taika Waititi,2022
+movie,The Avengers,Joss Whedon,2012
+movie,Avengers: Age of Ultron,Joss Whedon,2015
+movie,Avengers: Infinity War,Anthony and Joe Russo,2018
+movie,Avengers: Endgame,Anthony and Joe Russo,2019
+movie,Black Panther,Ryan Coogler,2018
+movie,Black Panther: Wakanda Forever,Ryan Coogler,2022
+movie,Doctor Strange,Scott Derrickson,2016
+movie,Doctor Strange in the Multiverse of Madness,Sam Raimi,2022
+movie,Guardians of the Galaxy,James Gunn,2014
+movie,Guardians of the Galaxy Vol. 2,James Gunn,2017
+movie,Guardians of the Galaxy Vol. 3,James Gunn,2023
+movie,Ant-Man,Peyton Reed,2015
+movie,Ant-Man and the Wasp,Peyton Reed,2018
+movie,Ant-Man and the Wasp: Quantumania,Peyton Reed,2023
+movie,Captain Marvel,Anna Boden,2019
+movie,The Marvels,Nia DaCosta,2023
+movie,Shang-Chi and the Legend of the Ten Rings,Destin Daniel Cretton,2021
+movie,Eternals,Chloé Zhao,2021
+movie,Black Widow,Cate Shortland,2021
+movie,Spider-Man: Homecoming,Jon Watts,2017
+movie,Spider-Man: Far From Home,Jon Watts,2019
+movie,Spider-Man: No Way Home,Jon Watts,2021
+movie,Venom,Ruben Fleischer,2018
+movie,Venom: Let There Be Carnage,Andy Serkis,2021
+movie,Morbius,Daniel Espinosa,2022
+movie,Deadpool,Tim Miller,2016
+movie,Deadpool 2,David Leitch,2018
+movie,Logan,James Mangold,2017
+movie,X-Men,Bryan Singer,2000
+movie,X2: X-Men United,Bryan Singer,2003
+movie,X-Men: The Last Stand,Brett Ratner,2006
+movie,X-Men: First Class,Matthew Vaughn,2011
+movie,X-Men: Days of Future Past,Bryan Singer,2014
+movie,X-Men: Apocalypse,Bryan Singer,2016
+movie,Dark Phoenix,Simon Kinberg,2019
+movie,The New Mutants,Josh Boone,2020
+movie,Fantastic Four,Tim Story,2005
+movie,Fantastic Four: Rise of the Silver Surfer,Tim Story,2007
+movie,Fantastic Four,Josh Trank,2015
+movie,Blade,Stephen Norrington,1998
+movie,Blade II,Guillermo del Toro,2002
+movie,Blade: Trinity,David S. Goyer,2004
+movie,The Punisher,Jonathan Hensleigh,2004
+movie,Punisher: War Zone,Lexi Alexander,2008
+movie,Ghost Rider,Mark Steven Johnson,2007
+movie,Ghost Rider: Spirit of Vengeance,Mark Neveldine,2012
+movie,Daredevil,Mark Steven Johnson,2003
+movie,Elektra,Rob Bowman,2005
+movie,Hulk,Ang Lee,2003
+movie,The Incredible Hulk,Louis Leterrier,2008
+movie,Man of Steel,Zack Snyder,2013
+movie,Batman v Superman: Dawn of Justice,Zack Snyder,2016
+movie,Suicide Squad,David Ayer,2016
+movie,Wonder Woman,Patty Jenkins,2017
+movie,Wonder Woman 1984,Patty Jenkins,2020
+movie,Justice League,Zack Snyder,2017
+movie,Zack Snyder's Justice League,Zack Snyder,2021
+movie,Aquaman,James Wan,2018
+movie,Aquaman and the Lost Kingdom,James Wan,2023
+movie,Shazam!,David F. Sandberg,2019
+movie,Shazam! Fury of the Gods,David F. Sandberg,2023
+movie,Birds of Prey,Cathy Yan,2020
+movie,The Suicide Squad,James Gunn,2021
+movie,Black Adam,Jaume Collet-Serra,2022
+movie,The Flash,Andy Muschietti,2023
+movie,Blue Beetle,Ángel Manuel Soto,2023
+movie,It's a Wonderful Life,Frank Capra,1946
+movie,A Christmas Story,Bob Clark,1983
+movie,Home Alone,Chris Columbus,1990
+movie,Home Alone 2: Lost in New York,Chris Columbus,1992
+movie,Miracle on 34th Street,George Seaton,1947
+movie,Miracle on 34th Street,Les Mayfield,1994
+movie,Elf,Jon Favreau,2003
+movie,The Santa Clause,John Pasquin,1994
+movie,The Santa Clause 2,Michael Lembeck,2002
+movie,The Santa Clause 3: The Escape Clause,Michael Lembeck,2006
+movie,How the Grinch Stole Christmas,Ron Howard,2000
+movie,The Grinch,Scott Mosier,2018
+movie,A Christmas Carol,Robert Zemeckis,2009
+movie,Scrooged,Richard Donner,1988
+movie,The Polar Express,Robert Zemeckis,2004
+movie,The Nightmare Before Christmas,Henry Selick,1993
+movie,White Christmas,Michael Curtiz,1954
+movie,Holiday Inn,Mark Sandrich,1942
+movie,Meet Me in St. Louis,Vincente Minnelli,1944
+movie,Love Actually,Richard Curtis,2003
+movie,The Holiday,Nancy Meyers,2006
+movie,Last Christmas,Paul Feig,2019
+movie,The Family Stone,Thomas Bezucha,2005
+movie,Four Christmases,Seth Gordon,2008
+movie,Christmas with the Kranks,Joe Roth,2004
+movie,Jingle All the Way,Brian Levant,1996
+movie,Deck the Halls,John Whitesell,2006
+movie,Fred Claus,David Dobkin,2007
+movie,Arthur Christmas,Sarah Smith,2011
+movie,Rise of the Guardians,Peter Ramsey,2012
+movie,Klaus,Sergio Pablos,2019
+movie,Noelle,Marc Lawrence,2019
+movie,The Christmas Chronicles,Clay Kaytis,2018
+movie,The Christmas Chronicles 2,Chris Columbus,2020
+movie,A Boy Called Christmas,Gil Kenan,2021
+movie,Spirited,Sean Anders,2022
+movie,Violent Night,Tommy Wirkola,2022
+movie,Candy Cane Lane,Reginald Hudlin,2023
+movie,Genie,Sam Boyd,2023
+movie,Halloween,John Carpenter,1978
+movie,Halloween II,Rick Rosenthal,1981
+movie,Halloween III: Season of the Witch,Tommy Lee Wallace,1982
+movie,Halloween 4: The Return of Michael Myers,Dwight H. Little,1988
+movie,Halloween 5: The Revenge of Michael Myers,Dominique Othenin-Girard,1989
+movie,Halloween: The Curse of Michael Myers,Joe Chappelle,1995
+movie,Halloween H20: 20 Years Later,Steve Miner,1998
+movie,Halloween: Resurrection,Rick Rosenthal,2002
+movie,Halloween,Rob Zombie,2007
+movie,Halloween II,Rob Zombie,2009
+movie,Halloween,David Gordon Green,2018
+movie,Halloween Kills,David Gordon Green,2021
+movie,Halloween Ends,David Gordon Green,2022
+movie,Hocus Pocus,Kenny Ortega,1993
+movie,Hocus Pocus 2,Anne Fletcher,2022
+movie,The Nightmare Before Christmas,Henry Selick,1993
+movie,Beetlejuice,Tim Burton,1988
+movie,The Addams Family,Barry Sonnenfeld,1991
+movie,Addams Family Values,Barry Sonnenfeld,1993
+movie,Casper,Brad Silberling,1995
+movie,The Craft,Andrew Fleming,1996
+movie,Practical Magic,Griffin Dunne,1998
+movie,Sleepy Hollow,Tim Burton,1999
+movie,The Haunted Mansion,Rob Minkoff,2003
+movie,Monster House,Gil Kenan,2006
+movie,ParaNorman,Chris Butler,2012
+movie,The Book of Life,Jorge R. Gutierrez,2014
+movie,Coco,Lee Unkrich,2017
+movie,The Addams Family,Conrad Vernon,2019
+movie,The Addams Family 2,Greg Tiernan,2021
+movie,Wendell & Wild,Henry Selick,2022
+movie,"Planes, Trains and Automobiles",John Hughes,1987
+movie,Home for the Holidays,Jodie Foster,1995
+movie,The Ice Storm,Ang Lee,1997
+movie,Pieces of April,Peter Hedges,2003
+movie,The Blind Side,John Lee Hancock,2009
+movie,Free Birds,Jimmy Hayward,2013
+movie,Addams Family Values,Barry Sonnenfeld,1993
+movie,Valentine's Day,Garry Marshall,2010
+movie,The Notebook,Nick Cassavetes,2004
+movie,Titanic,James Cameron,1997
+movie,La La Land,Damien Chazelle,2016
+movie,500 Days of Summer,Marc Webb,2009
+movie,Eternal Sunshine of the Spotless Mind,Michel Gondry,2004
+movie,Before Sunrise,Richard Linklater,1995
+movie,Before Sunset,Richard Linklater,2004
+movie,Before Midnight,Richard Linklater,2013
+movie,"Crazy, Stupid, Love",Glenn Ficarra,2011
+movie,The Proposal,Anne Fletcher,2009
+movie,27 Dresses,Anne Fletcher,2008
+movie,The Wedding Planner,Adam Shankman,2001
+movie,My Best Friend's Wedding,P.J. Hogan,1997
+movie,Pretty Woman,Garry Marshall,1990
+movie,When Harry Met Sally,Rob Reiner,1989
+movie,Sleepless in Seattle,Nora Ephron,1993
+movie,You've Got Mail,Nora Ephron,1998
+movie,Notting Hill,Roger Michell,1999
+movie,Four Weddings and a Funeral,Mike Newell,1994
+movie,Bridget Jones's Diary,Sharon Maguire,2001
+movie,Bridget Jones: The Edge of Reason,Beeban Kidron,2004
+movie,Bridget Jones's Baby,Sharon Maguire,2016
+movie,How to Lose a Guy in 10 Days,Donald Petrie,2003
+movie,13 Going on 30,Gary Winick,2004
+movie,The Devil Wears Prada,David Frankel,2006
+movie,Legally Blonde,Robert Luketic,2001
+movie,"Legally Blonde 2: Red, White & Blonde",Charles Herman-Wurmfeld,2003
+movie,Miss Congeniality,Donald Petrie,2000
+movie,Miss Congeniality 2: Armed and Fabulous,John Pasquin,2005
+movie,The Princess Diaries,Garry Marshall,2001
+movie,The Princess Diaries 2: Royal Engagement,Garry Marshall,2004
+movie,Confessions of a Shopaholic,P.J. Hogan,2009
+movie,The Ugly Truth,Robert Luketic,2009
+movie,He's Just Not That Into You,Ken Kwapis,2009
+movie,The Break-Up,Peyton Reed,2006
+movie,Failure to Launch,Tom Dey,2006
+movie,The Wedding Date,Clare Kilner,2005
+movie,Just Like Heaven,Mark Waters,2005
+movie,The Family Stone,Thomas Bezucha,2005
+movie,The Holiday,Nancy Meyers,2006
+movie,Something's Gotta Give,Nancy Meyers,2003
+movie,It's Complicated,Nancy Meyers,2009
+movie,The Ten Commandments,Cecil B. DeMille,1956
+movie,Ben-Hur,William Wyler,1959
+movie,The Passion of the Christ,Mel Gibson,2004
+movie,Braveheart,Mel Gibson,1995
+movie,Lethal Weapon,Richard Donner,1987
+movie,Lethal Weapon 2,Richard Donner,1989
+movie,Lethal Weapon 3,Richard Donner,1992
+movie,Lethal Weapon 4,Richard Donner,1998
+movie,Mad Max,George Miller,1979
+movie,Mad Max 2: The Road Warrior,George Miller,1981
+movie,Mad Max Beyond Thunderdome,George Miller,1985
+movie,Mad Max: Fury Road,George Miller,2015
+movie,What Women Want,Nancy Meyers,2000
+movie,Signs,M. Night Shyamalan,2002
+movie,We Were Soldiers,Randall Wallace,2002
+movie,Apocalypto,Mel Gibson,2006
+movie,Hacksaw Ridge,Mel Gibson,2016
+movie,Risen,Kevin Reynolds,2016
+movie,Hop,Tim Hill,2011
+movie,Peter Rabbit,Will Gluck,2018
+movie,Peter Rabbit 2: The Runaway,Will Gluck,2021
+movie,The Quiet Man,John Ford,1952
+movie,Waking Ned Devine,Kirk Jones,1998
+movie,The Commitments,Alan Parker,1991
+movie,In the Name of the Father,Jim Sheridan,1993
+movie,My Left Foot,Jim Sheridan,1989
+movie,The Wind That Shakes the Barley,Ken Loach,2006
+movie,Brooklyn,John Crowley,2015
+movie,Sing Street,John Carney,2016
+movie,Independence Day,Roland Emmerich,1996
+movie,Independence Day: Resurgence,Roland Emmerich,2016
+movie,The Patriot,Roland Emmerich,2000
+movie,1776,Peter H. Hunt,1972
+movie,National Treasure,Jon Turteltaub,2004
+movie,National Treasure: Book of Secrets,Jon Turteltaub,2007
+movie,Jaws,Steven Spielberg,1975
+movie,Born on the Fourth of July,Oliver Stone,1989
+movie,When Harry Met Sally,Rob Reiner,1989
+movie,New Year's Eve,Garry Marshall,2011
+movie,About Time,Richard Curtis,2013
+movie,The Apartment,Billy Wilder,1960
+movie,Ghostbusters II,Ivan Reitman,1989
+movie,Ocean's Eleven,Steven Soderbergh,2001
+movie,Ocean's Twelve,Steven Soderbergh,2004
+movie,Ocean's Thirteen,Steven Soderbergh,2007
+movie,Jaws,Steven Spielberg,1975
+movie,The Sandlot,David Mickey Evans,1993
+movie,Stand by Me,Rob Reiner,1986
+movie,The Goonies,Richard Donner,1985
+movie,E.T. the Extra-Terrestrial,Steven Spielberg,1982
+movie,Jurassic Park,Steven Spielberg,1993
+movie,Independence Day,Roland Emmerich,1996
+movie,Men in Black,Barry Sonnenfeld,1997
+movie,Armageddon,Michael Bay,1998
+movie,Deep Impact,Mimi Leder,1998
+movie,The Parent Trap,Nancy Meyers,1998
+movie,Mamma Mia!,Phyllida Lloyd,2008
+movie,Mamma Mia! Here We Go Again,Ol Parker,2018
+movie,The Sisterhood of the Traveling Pants,Ken Kwapis,2005
+movie,The Sisterhood of the Traveling Pants 2,Sanaa Hamri,2008
+movie,Dirty Dancing,Emile Ardolino,1987
+movie,Grease,Randal Kleiser,1978
+movie,The Notebook,Nick Cassavetes,2004
+movie,Call Me by Your Name,Luca Guadagnino,2017
+movie,The Way Way Back,Nat Faxon,2013
+movie,Adventureland,Greg Mottola,2009
+movie,The Kings of Summer,Jordan Vogt-Roberts,2013
+movie,Moonrise Kingdom,Wes Anderson,2012
+movie,The Grand Budapest Hotel,Wes Anderson,2014
+movie,The Secret Life of Walter Mitty,Ben Stiller,2013
+movie,Into the Wild,Sean Penn,2007
+movie,Wild,Jean-Marc Vallée,2014
+movie,127 Hours,Danny Boyle,2010
+movie,The Beach,Danny Boyle,2000
+movie,The Descendants,Alexander Payne,2011
+movie,The Secret Garden,Agnieszka Holland,1993
+movie,A Little Princess,Alfonso Cuarón,1995
+movie,The Princess Diaries,Garry Marshall,2001
+movie,The Princess Diaries 2: Royal Engagement,Garry Marshall,2004
+movie,Ella Enchanted,Tommy O'Haver,2004
+movie,Enchanted,Kevin Lima,2007
+movie,The Princess and the Frog,Ron Clements,2009
+movie,Tangled,Nathan Greno,2010
+movie,Brave,Mark Andrews,2012
+movie,Frozen,Chris Buck,2013
+movie,Frozen II,Chris Buck,2019
+movie,Moana,Ron Clements,2016
+movie,Raya and the Last Dragon,Don Hall,2021
+movie,Encanto,Jared Bush,2021
+movie,Turning Red,Domee Shi,2022
+movie,Elemental,Peter Sohn,2023
+movie,Wish,Chris Buck,2023
+movie,Little Women,Greta Gerwig,2019
+movie,Lady Bird,Greta Gerwig,2017
+movie,Barbie,Greta Gerwig,2023
+movie,Frances Ha,Noah Baumbach,2012
+movie,Mistress America,Noah Baumbach,2015
+movie,Lost in Translation,Sofia Coppola,2003
+movie,The Virgin Suicides,Sofia Coppola,1999
+movie,Marie Antoinette,Sofia Coppola,2006
+movie,Somewhere,Sofia Coppola,2010
+movie,The Bling Ring,Sofia Coppola,2013
+movie,The Beguiled,Sofia Coppola,2017
+movie,On the Rocks,Sofia Coppola,2020
+movie,Priscilla,Sofia Coppola,2023
+movie,The Hurt Locker,Kathryn Bigelow,2008
+movie,Zero Dark Thirty,Kathryn Bigelow,2012
+movie,Point Break,Kathryn Bigelow,1991
+movie,Strange Days,Kathryn Bigelow,1995
+movie,Near Dark,Kathryn Bigelow,1987
+movie,Blue Steel,Kathryn Bigelow,1990
+movie,The Weight of Water,Kathryn Bigelow,2000
+movie,K-19: The Widowmaker,Kathryn Bigelow,2002
+movie,Detroit,Kathryn Bigelow,2017
+movie,Frida,Julie Taymor,2002
+movie,Across the Universe,Julie Taymor,2007
+movie,The Tempest,Julie Taymor,2010
+movie,Gloria Bell,Sebastián Lelio,2018
+movie,A Fantastic Woman,Sebastián Lelio,2017
+movie,Disobedience,Sebastián Lelio,2017
+movie,The Wonder,Sebastián Lelio,2022
+movie,The Babadook,Jennifer Kent,2014
+movie,The Nightingale,Jennifer Kent,2018
+movie,Monster,Patty Jenkins,2003
+movie,Wonder Woman,Patty Jenkins,2017
+movie,Wonder Woman 1984,Patty Jenkins,2020
+movie,American Psycho,Mary Harron,2000
+movie,The Notorious Bettie Page,Mary Harron,2005
+movie,The Moth Diaries,Mary Harron,2011
+movie,Charlie Says,Mary Harron,2018
+movie,The Piano,Jane Campion,1993
+movie,The Portrait of a Lady,Jane Campion,1996
+movie,Holy Smoke!,Jane Campion,1999
+movie,In the Cut,Jane Campion,2003
+movie,Bright Star,Jane Campion,2009
+movie,The Power of the Dog,Jane Campion,2021
+movie,The Water Diary,Jane Campion,2006
+movie,The Party,Sally Potter,2017
+movie,Orlando,Sally Potter,1992
+movie,The Tango Lesson,Sally Potter,1997
+movie,Yes,Sally Potter,2004
+movie,Rage,Sally Potter,2009
+movie,Ginger & Rosa,Sally Potter,2012
+movie,The Roads Not Taken,Sally Potter,2020
+movie,Lost in La Mancha,Keith Fulton,2002
+movie,The Hours,Stephen Daldry,2002
+movie,Billy Elliot,Stephen Daldry,2000
+movie,The Reader,Stephen Daldry,2008
+movie,Extremely Loud & Incredibly Close,Stephen Daldry,2011
+movie,Trash,Stephen Daldry,2014
+movie,The Crown,Various,2016
+movie,The Handmaid's Tale,Various,2017
+movie,Big Little Lies,Various,2017
+movie,Killing Eve,Various,2018
+movie,Fleabag,Various,2016
+movie,I May Destroy You,Michaela Coel,2020
+movie,Chewing Gum,Michaela Coel,2015
+movie,Normal People,Lenny Abrahamson,2020
+movie,Conversations with Friends,Lenny Abrahamson,2022
+movie,The Queen's Gambit,Scott Frank,2020
+movie,Unorthodox,Maria Schrader,2020
+movie,The Undoing,Susanne Bier,2020
+movie,The Night Manager,Susanne Bier,2016
+movie,Bird Box,Susanne Bier,2018
+movie,The Good Place,Michael Schur,2016
+movie,Parks and Recreation,Various,2009
+movie,30 Rock,Tina Fey,2006
+movie,Unbreakable Kimmy Schmidt,Tina Fey,2015
+movie,Girls,Lena Dunham,2012
+movie,Camping,Lena Dunham,2018
+movie,Sharp Objects,Jean-Marc Vallée,2018
+movie,Gone Girl,David Fincher,2014
+movie,Wild,Jean-Marc Vallée,2014
+movie,Dallas Buyers Club,Jean-Marc Vallée,2013
+movie,The Young Victoria,Jean-Marc Vallée,2009
+movie,Café de Flore,Jean-Marc Vallée,2011
+movie,Demolition,Jean-Marc Vallée,2015
+movie,Big Little Lies,Jean-Marc Vallée,2017
+movie,Sharp Objects,Jean-Marc Vallée,2018
+movie,The Undoing,Susanne Bier,2020
+movie,The Night Manager,Susanne Bier,2016
+movie,Bird Box,Susanne Bier,2018
+movie,The Good Place,Michael Schur,2016
+movie,Parks and Recreation,Various,2009
+movie,30 Rock,Tina Fey,2006
+movie,Unbreakable Kimmy Schmidt,Tina Fey,2015
+movie,Girls,Lena Dunham,2012
+movie,Camping,Lena Dunham,2018
+movie,Sharp Objects,Jean-Marc Vallée,2018
+movie,Gone Girl,David Fincher,2014
+movie,Wild,Jean-Marc Vallée,2014
+movie,Dallas Buyers Club,Jean-Marc Vallée,2013
+movie,The Young Victoria,Jean-Marc Vallée,2009
+movie,Café de Flore,Jean-Marc Vallée,2011
+movie,Demolition,Jean-Marc Vallée,2015
+movie,Planet Earth,Alastair Fothergill,2006
+movie,Blue Planet,Alastair Fothergill,2001
+movie,Cosmos: A Spacetime Odyssey,Ann Druyan,2014
+movie,The Last Dance,Jason Hehir,2020
+movie,Making a Murderer,Laura Ricciardi,2015
+movie,The Jinx,Andrew Jarecki,2015
+movie,13th,Ava DuVernay,2016
+movie,Won't You Be My Neighbor?,Morgan Neville,2018
+movie,Free Solo,Elizabeth Chai Vasarhelyi,2018
+movie,The Act of Killing,Joshua Oppenheimer,2012
+movie,Citizenfour,Laura Poitras,2014
+movie,Amy,Asif Kapadia,2015
+movie,Searching for Sugar Man,Malik Bendjelloul,2012
+movie,Man on Wire,James Marsh,2008
+movie,March of the Penguins,Luc Jacquet,2005
+movie,Inside Out,Pete Docter,2015
+movie,The Theory of Everything,James Marsh,2014
+movie,Hidden Figures,Theodore Melfi,2016
+movie,The Imitation Game,Morten Tyldum,2014
+movie,A Beautiful Mind,Ron Howard,2001
+movie,Good Will Hunting,Gus Van Sant,1997
+movie,Dead Poets Society,Peter Weir,1989
+movie,Stand and Deliver,Ramón Menéndez,1988
+movie,Freedom Writers,Richard LaGravenese,2007
+movie,The Ron Clark Story,Randa Haines,2006
+movie,Parasite,Bong Joon-ho,2019
+movie,Roma,Alfonso Cuarón,2018
+movie,"Crouching Tiger, Hidden Dragon",Ang Lee,2000
+movie,Amélie,Jean-Pierre Jeunet,2001
+movie,Life Is Beautiful,Roberto Benigni,1997
+movie,Cinema Paradiso,Giuseppe Tornatore,1988
+movie,The Secret in Their Eyes,Juan José Campanella,2009
+movie,A Separation,Asghar Farhadi,2011
+movie,The Hunt,Thomas Vinterberg,2012
+movie,The Lives of Others,Florian Henckel von Donnersmarck,2006
+movie,Let the Right One In,Tomas Alfredson,2008
+movie,The White Ribbon,Michael Haneke,2009
+movie,The Diving Bell and the Butterfly,Julian Schnabel,2007
+movie,The Motorcycle Diaries,Walter Salles,2004
+movie,Y Tu Mamá También,Alfonso Cuarón,2001
+movie,Moonlight,Barry Jenkins,2016
+movie,Lady Bird,Greta Gerwig,2017
+movie,The Florida Project,Sean Baker,2017
+movie,Beasts of the Southern Wild,Benh Zeitlin,2012
+movie,Fruitvale Station,Ryan Coogler,2013
+movie,Short Term 12,Destin Daniel Cretton,2013
+movie,The Spectacular Now,James Ponsoldt,2013
+movie,The Way Way Back,Nat Faxon,2013
+movie,The Perks of Being a Wallflower,Stephen Chbosky,2012
+movie,Mud,Jeff Nichols,2012
+movie,Take Shelter,Jeff Nichols,2011
+movie,Winter's Bone,Debra Granik,2010
+movie,Frozen River,Courtney Hunt,2008
+movie,The Station Agent,Tom McCarthy,2003
+movie,The Squid and the Whale,Noah Baumbach,2005
+movie,Piper,Alan Barillaro,2016
+movie,Bao,Domee Shi,2018
+movie,Kitbull,Rosana Sullivan,2019
+movie,Float,Bobby Rubio,2019
+movie,Loop,Erica Milsom,2020
+movie,The Windshield Wiper,Alberto Mielgo,2021
+movie,"The Boy, the Mole, the Fox and the Horse",Charlie Mackesy,2022
+movie,Ice Merchants,João Gonzalez,2022
+movie,The Flying Sailor,Wendy Tilby,2022
+movie,My Year of Dicks,Sara Gunnarsdóttir,2022
+movie,Blade Runner,Ridley Scott,1982
+movie,Blade Runner 2049,Denis Villeneuve,2017
+movie,The Fifth Element,Luc Besson,1997
+movie,Minority Report,Steven Spielberg,2002
+movie,Total Recall,Paul Verhoeven,1990
+movie,RoboCop,Paul Verhoeven,1987
+movie,The Terminator,James Cameron,1984
+movie,Terminator 2: Judgment Day,James Cameron,1991
+movie,Aliens,James Cameron,1986
+movie,Predator,John McTiernan,1987
+movie,The Thing,John Carpenter,1982
+movie,They Live,John Carpenter,1988
+movie,The Fly,David Cronenberg,1986
+movie,Videodrome,David Cronenberg,1983
+movie,Scanners,David Cronenberg,1981
+movie,The Shining,Stanley Kubrick,1980
+movie,The Exorcist,William Friedkin,1973
+movie,Halloween,John Carpenter,1978
+movie,A Nightmare on Elm Street,Wes Craven,1984
+movie,Friday the 13th,Sean S. Cunningham,1980
+movie,The Texas Chain Saw Massacre,Tobe Hooper,1974
+movie,Carrie,Brian De Palma,1976
+movie,The Omen,Richard Donner,1976
+movie,Rosemary's Baby,Roman Polanski,1968
+movie,The Wicker Man,Robin Hardy,1973
+movie,Don't Look Now,Nicolas Roeg,1973
+movie,Suspiria,Dario Argento,1977
+movie,The Evil Dead,Sam Raimi,1981
+movie,Evil Dead II,Sam Raimi,1987
+movie,Army of Darkness,Sam Raimi,1992
+movie,Re-Animator,Stuart Gordon,1985
+movie,From Beyond,Stuart Gordon,1986
+movie,Chinatown,Roman Polanski,1974
+movie,The Maltese Falcon,John Huston,1941
+movie,Double Indemnity,Billy Wilder,1944
+movie,The Big Sleep,Howard Hawks,1946
+movie,Laura,Otto Preminger,1944
+movie,The Third Man,Carol Reed,1949
+movie,Touch of Evil,Orson Welles,1958
+movie,The Long Goodbye,Robert Altman,1973
+movie,The Big Lebowski,Joel Coen,1998
+movie,Brick,Rian Johnson,2005
+movie,Kiss Kiss Bang Bang,Shane Black,2005
+movie,The Nice Guys,Shane Black,2016
+movie,Gone Baby Gone,Ben Affleck,2007
+movie,Mystic River,Clint Eastwood,2003
+movie,Zodiac,David Fincher,2007
+movie,Se7en,David Fincher,1995
+movie,The Silence of the Lambs,Jonathan Demme,1991
+movie,Red Dragon,Brett Ratner,2002
+movie,Hannibal,Ridley Scott,2001
+movie,"The Good, the Bad and the Ugly",Sergio Leone,1966
+movie,Once Upon a Time in the West,Sergio Leone,1968
+movie,For a Few Dollars More,Sergio Leone,1965
+movie,A Fistful of Dollars,Sergio Leone,1964
+movie,High Noon,Fred Zinnemann,1952
+movie,Shane,George Stevens,1953
+movie,The Searchers,John Ford,1956
+movie,Stagecoach,John Ford,1939
+movie,The Magnificent Seven,John Sturges,1960
+movie,Butch Cassidy and the Sundance Kid,George Roy Hill,1969
+movie,The Wild Bunch,Sam Peckinpah,1969
+movie,Unforgiven,Clint Eastwood,1992
+movie,Dances with Wolves,Kevin Costner,1990
+movie,Tombstone,George P. Cosmatos,1993
+movie,Open Range,Kevin Costner,2003
+movie,3:10 to Yuma,James Mangold,2007
+movie,True Grit,Joel Coen,2010
+movie,Django Unchained,Quentin Tarantino,2012
+movie,The Hateful Eight,Quentin Tarantino,2015
+movie,The Revenant,Alejandro González Iñárritu,2015
+movie,Rocky,John G. Avildsen,1976
+movie,Rocky II,Sylvester Stallone,1979
+movie,Rocky III,Sylvester Stallone,1982
+movie,Rocky IV,Sylvester Stallone,1985
+movie,Raging Bull,Martin Scorsese,1980
+movie,Million Dollar Baby,Clint Eastwood,2004
+movie,The Fighter,David O. Russell,2010
+movie,Creed,Ryan Coogler,2015
+movie,Creed II,Steven Caple Jr.,2018
+movie,Creed III,Michael B. Jordan,2023
+movie,The Natural,Barry Levinson,1984
+movie,Field of Dreams,Phil Alden Robinson,1989
+movie,Bull Durham,Ron Shelton,1988
+movie,A League of Their Own,Penny Marshall,1992
+movie,Remember the Titans,Boaz Yakin,2000
+movie,Friday Night Lights,Peter Berg,2004
+movie,The Blind Side,John Lee Hancock,2009
+movie,Moneyball,Bennett Miller,2011
+movie,42,Brian Helgeland,2013
+movie,Rush,Ron Howard,2013
+movie,Ford v Ferrari,James Mangold,2019
+movie,Mulholland Drive,David Lynch,2001
+movie,Eraserhead,David Lynch,1977
+movie,Blue Velvet,David Lynch,1986
+movie,Lost Highway,David Lynch,1997
+movie,Inland Empire,David Lynch,2006
+movie,Persona,Ingmar Bergman,1966
+movie,The Seventh Seal,Ingmar Bergman,1957
+movie,Wild Strawberries,Ingmar Bergman,1957
+movie,Cries and Whispers,Ingmar Bergman,1972
+movie,Fanny and Alexander,Ingmar Bergman,1982
+movie,8½,Federico Fellini,1963
+movie,La Dolce Vita,Federico Fellini,1960
+movie,Nights of Cabiria,Federico Fellini,1957
+movie,La Strada,Federico Fellini,1954
+movie,The 400 Blows,François Truffaut,1959
+movie,Jules and Jim,François Truffaut,1962
+movie,Breathless,Jean-Luc Godard,1960
+movie,Contempt,Jean-Luc Godard,1963
+movie,Pierrot le Fou,Jean-Luc Godard,1965
+movie,Weekend,Jean-Luc Godard,1967
+movie,Oldboy,Park Chan-wook,2003
+movie,The Handmaiden,Park Chan-wook,2016
+movie,Memories of Murder,Bong Joon-ho,2003
+movie,The Host,Bong Joon-ho,2006
+movie,Train to Busan,Yeon Sang-ho,2016
+movie,The Wailing,Na Hong-jin,2016
+movie,Burning,Lee Chang-dong,2018
+movie,The Tale of the Princess Kaguya,Isao Takahata,2013
+movie,Grave of the Fireflies,Isao Takahata,1988
+movie,Spirited Away,Hayao Miyazaki,2001
+movie,My Neighbor Totoro,Hayao Miyazaki,1988
+movie,Princess Mononoke,Hayao Miyazaki,1997
+movie,Howl's Moving Castle,Hayao Miyazaki,2004
+movie,Castle in the Sky,Hayao Miyazaki,1986
+movie,Kiki's Delivery Service,Hayao Miyazaki,1989
+movie,Nausicaä of the Valley of the Wind,Hayao Miyazaki,1984
+movie,The Wind Rises,Hayao Miyazaki,2013
+movie,Akira,Katsuhiro Otomo,1988
+movie,Ghost in the Shell,Mamoru Oshii,1995
+movie,Perfect Blue,Satoshi Kon,1997
+movie,Paprika,Satoshi Kon,2006
+movie,Meshes of the Afternoon,Maya Deren,1943
+movie,Un Chien Andalou,Luis Buñuel,1929
+movie,L'Age d'Or,Luis Buñuel,1930
+movie,The Man with a Movie Camera,Dziga Vertov,1929
+movie,Battleship Potemkin,Sergei Eisenstein,1925
+movie,Strike,Sergei Eisenstein,1925
+movie,Ivan the Terrible,Sergei Eisenstein,1944
+movie,Metropolis,Fritz Lang,1927
+movie,M,Fritz Lang,1931
+movie,The Cabinet of Dr. Caligari,Robert Wiene,1920
+movie,Nosferatu,F.W. Murnau,1922
+movie,Sunrise: A Song of Two Humans,F.W. Murnau,1927
+movie,The Passion of Joan of Arc,Carl Theodor Dreyer,1928
+movie,Vampyr,Carl Theodor Dreyer,1932
+movie,Ordet,Carl Theodor Dreyer,1955
+movie,Gertrud,Carl Theodor Dreyer,1964
+movie,The Civil War,Ken Burns,1990
+movie,Baseball,Ken Burns,1994
+movie,Jazz,Ken Burns,2001
+movie,The War,Ken Burns,2007
+movie,The National Parks,Ken Burns,2009
+movie,The Vietnam War,Ken Burns,2017
+movie,Country Music,Ken Burns,2019
+movie,The Roosevelts,Ken Burns,2014
+movie,The Dust Bowl,Ken Burns,2012
+movie,Prohibition,Ken Burns,2011
+movie,The Central Park Five,Ken Burns,2012
+movie,Cancer: The Emperor of All Maladies,Barak Goodman,2015
+movie,The Gene,Ken Burns,2020
+movie,The Address,Ken Burns,2014
+movie,Defying the Nazis,Ken Burns,2016
+movie,The Mayo Clinic,Ken Burns,2018
+movie,Hemingway,Ken Burns,2021
+movie,Benjamin Franklin,Ken Burns,2022
+movie,The U.S. and the Holocaust,Ken Burns,2022
+movie,The American Buffalo,Ken Burns,2023
+movie,Akira,Katsuhiro Otomo,1988
+movie,Ghost in the Shell,Mamoru Oshii,1995
+movie,Perfect Blue,Satoshi Kon,1997
+movie,Paprika,Satoshi Kon,2006
+movie,Tokyo Godfathers,Satoshi Kon,2003
+movie,Millennium Actress,Satoshi Kon,2001
+movie,Your Name,Makoto Shinkai,2016
+movie,Weathering with You,Makoto Shinkai,2019
+movie,5 Centimeters Per Second,Makoto Shinkai,2007
+movie,The Garden of Words,Makoto Shinkai,2013
+movie,A Silent Voice,Naoko Yamada,2016
+movie,Liz and the Blue Bird,Naoko Yamada,2018
+movie,Wolf Children,Mamoru Hosoda,2012
+movie,The Boy and the Beast,Mamoru Hosoda,2015
+movie,Mirai,Mamoru Hosoda,2018
+movie,Belle,Mamoru Hosoda,2021
+movie,Redline,Takeshi Koike,2009
+movie,Tekkonkinkreet,Michael Arias,2006
+movie,Mind Game,Masaaki Yuasa,2004
+movie,"The Night is Short, Walk on Girl",Masaaki Yuasa,2017
+movie,Lu Over the Wall,Masaaki Yuasa,2017
+movie,Ride Your Wave,Masaaki Yuasa,2019
+movie,In This Corner of the World,Sunao Katabuchi,2016
+movie,Maquia: When the Promised Flower Blooms,Mari Okada,2018
+movie,Fireworks,Nobuyuki Takeuchi,2017
+movie,The Anthem of the Heart,Tatsuyuki Nagai,2015
+movie,Colorful,Keiichi Hara,2010
+movie,Summer Wars,Mamoru Hosoda,2009
+movie,The Girl Who Leapt Through Time,Mamoru Hosoda,2006

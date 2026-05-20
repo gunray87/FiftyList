@@ -108,10 +108,10 @@ export default function YearFolderSelector({
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 6,
+    paddingTop: 4,
     paddingBottom: 4,
     marginHorizontal: 20,
-    marginBottom: 2,
+    marginBottom: 8,
     borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     backdropFilter: 'blur(10px)',

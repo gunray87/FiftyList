@@ -1,6 +1,29 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
-import { BookOpen, Clock, Target, X, Star, ChevronRight } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+
+/** Fallback only if caller omits accent (defaults to Books sand/amber tone). */
+const DEFAULT_PRIMARY = '#D97706';
+
+function hexToRgbA(hex: string, alpha: number): string {
+  const h = hex.replace('#', '').trim();
+  if (h.length !== 6 || Number.isNaN(parseInt(h, 16))) {
+    return `rgba(115, 115, 115, ${alpha})`;
+  }
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 interface Tab {
   key: string;
@@ -13,80 +36,109 @@ interface TabNavigationProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   tabs: Tab[];
+  /** Screen accent: Books `#D97706` (amber), Movies `#3B82F6` (blue). */
   primaryColor: string;
   isDark?: boolean;
+  /** Screen background behind chips (used for scroll fade edge). */
   backgroundColor?: string;
 }
 
-export default function TabNavigation({ activeTab, onTabChange, tabs, primaryColor, isDark = false, backgroundColor }: TabNavigationProps) {
+export default function TabNavigation({
+  activeTab,
+  onTabChange,
+  tabs,
+  primaryColor,
+  isDark = false,
+  backgroundColor,
+}: TabNavigationProps) {
+  const accent = primaryColor || DEFAULT_PRIMARY;
+
+  const palette = useMemo(() => {
+    const inactiveBorder = hexToRgbA(accent, isDark ? 0.5 : 0.38);
+    const badgeMuted = hexToRgbA(accent, isDark ? 0.18 : 0.12);
+    // Movies (dark / blue): cool blue tints. Books (light / amber): warm stone.
+    const inactiveIcon = isDark ? '#93C5FD' : '#78716C';
+    const inactiveLabel = isDark ? 'rgba(226, 232, 240, 0.95)' : '#57534E';
+    const badgeTextInactive = isDark ? '#BFDBFE' : '#57534E';
+
+    return {
+      inactiveBorder,
+      badgeMuted,
+      inactiveIcon,
+      inactiveLabel,
+      badgeTextInactive,
+    };
+  }, [accent, isDark]);
+
+  const [showLeftFade, setShowLeftFade] = useState(false);
+
+  const onHorizontalScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const x = e.nativeEvent.contentOffset.x;
+    setShowLeftFade(x > 8);
+  };
+
   return (
-    <View 
-      style={[
-        styles.container, 
-        isDark && styles.darkContainer,
-        backgroundColor && { backgroundColor }
-      ]}
-      accessibilityRole="tablist"
-      accessibilityLabel="Category navigation"
-    >
-      <View style={styles.scrollContainer}>
-        <ScrollView 
-          horizontal 
+    <View style={styles.wrapper} accessibilityRole="tablist" accessibilityLabel="Category navigation">
+      <View style={styles.track}>
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={onHorizontalScroll}
           contentContainerStyle={styles.scrollContent}
-          accessibilityLabel="Scrollable category tabs"
+          accessibilityLabel="Category tabs"
         >
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const isActive = activeTab === tab.key;
             const IconComponent = tab.icon;
-            
+
             return (
               <TouchableOpacity
                 key={tab.key}
                 style={[
-                  styles.tab,
-                  isActive && { backgroundColor: `${primaryColor}15` },
-                  isDark && styles.darkTab,
-                  isDark && isActive && styles.darkActiveTab
+                  styles.chip,
+                  index === tabs.length - 1 && styles.chipLast,
+                  !isActive && { borderColor: palette.inactiveBorder, backgroundColor: 'transparent' },
+                  isActive && { backgroundColor: accent, borderColor: accent },
                 ]}
                 onPress={() => onTabChange(tab.key)}
                 accessibilityRole="tab"
                 accessibilityLabel={`${tab.label} category, ${tab.count} items`}
                 accessibilityHint={`Switch to ${tab.label} category`}
                 accessibilityState={{ selected: isActive }}
+                activeOpacity={0.85}
               >
-                <View style={[
-                  styles.iconContainer,
-                  isActive && { backgroundColor: `${primaryColor}25` },
-                  isDark && styles.darkIconContainer,
-                  isDark && isActive && styles.darkActiveIconContainer
-                ]}>
-                  <IconComponent 
-                    size={18} 
-                    color={isActive ? primaryColor : (isDark ? '#9CA3AF' : '#6B7280')} 
-                    {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                  />
-                </View>
-                <Text 
+                <IconComponent
+                  size={16}
+                  color={isActive ? '#FFFFFF' : palette.inactiveIcon}
+                  {...(Platform.OS === 'web'
+                    ? { 'aria-hidden': true }
+                    : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                />
+                <Text
                   style={[
-                    styles.tabLabel,
-                    { color: isActive ? primaryColor : (isDark ? '#D1D5DB' : '#6B7280') }
+                    styles.tabLabelBase,
+                    { color: isActive ? '#FFFFFF' : palette.inactiveLabel },
                   ]}
-                  {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                  numberOfLines={1}
+                  {...(Platform.OS === 'web'
+                    ? { 'aria-hidden': true }
+                    : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                 >
                   {tab.label}
                 </Text>
-                <View 
+                <View
                   style={[
                     styles.badge,
-                    { backgroundColor: isActive ? primaryColor : (isDark ? '#374151' : '#E5E7EB') }
+                    isActive ? styles.badgeActive : { backgroundColor: palette.badgeMuted },
                   ]}
-                  {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                 >
-                  <Text style={[
-                    styles.badgeText,
-                    { color: isActive ? '#FFFFFF' : (isDark ? '#D1D5DB' : '#6B7280') }
-                  ]}>
+                  <Text
+                    style={[
+                      styles.badgeTextBase,
+                      { color: isActive ? '#FFFFFF' : palette.badgeTextInactive },
+                    ]}
+                  >
                     {tab.count}
                   </Text>
                 </View>
@@ -94,136 +146,89 @@ export default function TabNavigation({ activeTab, onTabChange, tabs, primaryCol
             );
           })}
         </ScrollView>
-        
-        {/* Scrollable indicator */}
-        <View 
-          style={[styles.scrollIndicator, isDark && styles.darkScrollIndicator]}
-          {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-        >
-          <ChevronRight 
-            size={14} 
-            color={isDark ? '#6B7280' : '#9CA3AF'} 
+
+        {showLeftFade && (
+          <LinearGradient
+            pointerEvents="none"
+            colors={
+              isDark
+                ? [
+                    backgroundColor
+                      ? hexToRgbA(backgroundColor, 0.92)
+                      : 'rgba(17, 24, 39, 0.92)',
+                    hexToRgbA(backgroundColor ?? '#111827', 0),
+                  ]
+                : [
+                    hexToRgbA(backgroundColor ?? '#EDE8D0', 0.96),
+                    hexToRgbA(backgroundColor ?? '#EDE8D0', 0),
+                  ]
+            }
+            locations={[0, 1]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={styles.leftFade}
           />
-        </View>
-      </View>
-      
-      {/* Bottom hint text */}
-      <View style={styles.hintContainer}>
-        <Text 
-          style={[styles.hintText, isDark && styles.darkHintText]}
-          accessibilityLabel="Swipe left and right to see all categories"
-          accessibilityRole="text"
-        >
-          ← Swipe to see all categories →
-        </Text>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginHorizontal: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+  wrapper: {
+    marginBottom: 8,
+    zIndex: 0,
   },
-  darkContainer: {
-    backgroundColor: '#1F2937',
-    borderColor: '#374151',
-    borderWidth: 1,
-  },
-  scrollContainer: {
+  track: {
     position: 'relative',
+    width: '100%',
+    overflow: 'visible',
   },
   scrollContent: {
-    paddingHorizontal: 4,
-    paddingVertical: 8,
-  },
-  tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginHorizontal: 4,
-    borderRadius: 12,
-    gap: 8,
+    paddingLeft: 20,
+    paddingRight: 0,
+    paddingVertical: 6,
   },
-  darkTab: {
-    backgroundColor: 'transparent',
-  },
-  darkActiveTab: {
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-  },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+  chip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    gap: 6,
+    borderWidth: 1.5,
+    marginRight: 8,
   },
-  darkIconContainer: {
-    backgroundColor: '#374151',
+  chipLast: {
+    marginRight: 0,
   },
-  darkActiveIconContainer: {
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  tabLabel: {
+  tabLabelBase: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
+    maxWidth: 140,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 24,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    minWidth: 22,
     alignItems: 'center',
   },
-  badgeText: {
+  badgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  badgeTextBase: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
   },
-  scrollIndicator: {
+  leftFade: {
     position: 'absolute',
-    right: 8,
-    top: '50%',
-    transform: [{ translateY: -7 }],
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 12,
-    padding: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  darkScrollIndicator: {
-    backgroundColor: 'rgba(31, 41, 55, 0.9)',
-  },
-  hintContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    alignItems: 'center',
-  },
-  hintText: {
-    fontSize: 11,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    textAlign: 'center',
-  },
-  darkHintText: {
-    color: '#6B7280',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 28,
+    zIndex: 2,
   },
 });

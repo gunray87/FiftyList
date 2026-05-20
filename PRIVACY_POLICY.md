@@ -10,7 +10,7 @@ FiftyList ("we," "our," or "us") is committed to protecting your privacy. This P
 
 **No Personal Information Collected**: FiftyList does not collect, store, or transmit any personal information from your device.
 
-**Local Data Storage**: All your reading and movie lists, goals, and preferences are stored locally on your device using your device's secure storage.
+**Local Data Storage**: Your reading and movie lists, goals, and preferences are stored locally on your device.
 
 ## How We Use Information
 
@@ -21,6 +21,7 @@ Since we do not collect personal information, there is no information to use, sh
 - **Local Storage**: All app data is stored locally on your device
 - **No Cloud Storage**: We do not use cloud services to store your data
 - **No Data Transmission**: Your data never leaves your device
+- **Sensitive App State**: Subscription entitlement state is stored using OS-backed secure storage when available
 - **Export Feature**: You can export your data for backup purposes, but this is done locally on your device
 
 ## Third-Party Services

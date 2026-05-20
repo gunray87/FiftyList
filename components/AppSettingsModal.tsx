@@ -10,7 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { X, BookOpen, Film, Settings, RotateCcw } from 'lucide-react-native';
+import { X, BookOpen, Film, Settings, RotateCcw, SlidersHorizontal, ArrowUpDown, ListFilter } from 'lucide-react-native';
 import { useAppSettings, AppSettings } from '@/hooks/useAppSettings';
 
 interface AppSettingsModalProps {
@@ -19,33 +19,25 @@ interface AppSettingsModalProps {
   isDark?: boolean;
 }
 
-export default function AppSettingsModal({
-  visible,
-  onClose,
-  isDark = false,
-}: AppSettingsModalProps) {
+/** Inner content for default preferences — use inside a parent sheet to avoid stacked modals. */
+export function AppSettingsPanel({ onClose, isDark = false }: { onClose: () => void; isDark?: boolean }) {
   const { settings, updateSettings, resetSettings, isLoading, DEFAULT_SETTINGS } = useAppSettings();
   const [localSettings, setLocalSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Sync local settings when modal opens or settings change
   useEffect(() => {
-    if (visible) {
-      console.log('📱 Modal opened, syncing settings:', settings);
-      setLocalSettings(settings);
-    }
-  }, [visible, settings]);
+    setLocalSettings(settings);
+  }, [settings]);
 
   const handleSave = async () => {
     try {
       setIsSaving(true);
       console.log('📱 Saving settings:', localSettings);
       await updateSettings(localSettings);
-      Alert.alert(
-        'Settings Saved',
-        'Your default preferences have been updated and will be applied to new items.',
-        [{ text: 'OK', onPress: onClose }]
-      );
+      // Keep the flow lightweight: save and return immediately.
+      setIsSaving(false);
+      onClose();
+      return;
     } catch (error) {
       console.error('📱 Error saving settings:', error);
       Alert.alert(
@@ -53,9 +45,8 @@ export default function AppSettingsModal({
         'Failed to save settings. Please try again.',
         [{ text: 'OK' }]
       );
-    } finally {
-      setIsSaving(false);
     }
+    setIsSaving(false);
   };
 
   const handleReset = () => {
@@ -135,6 +126,28 @@ export default function AppSettingsModal({
     </View>
   );
 
+  const SectionHeader = ({
+    title,
+    description,
+    icon: Icon,
+  }: {
+    title: string;
+    description: string;
+    icon: React.ComponentType<any>;
+  }) => (
+    <>
+      <View style={styles.sectionHeaderRow}>
+        <View style={[styles.sectionHeaderIconWrap, isDark && styles.darkSectionHeaderIconWrap]}>
+          <Icon size={16} color={isDark ? '#93C5FD' : '#2563EB'} />
+        </View>
+        <Text style={[styles.sectionTitle, isDark && styles.darkText]}>{title}</Text>
+      </View>
+      <Text style={[styles.sectionDescription, isDark && styles.darkSecondaryText]}>
+        {description}
+      </Text>
+    </>
+  );
+
   const SourceInput = ({
     title,
     value,
@@ -171,12 +184,6 @@ export default function AppSettingsModal({
   );
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
       <View style={[styles.container, isDark && styles.darkContainer]}>
         {/* Header */}
         <View style={[styles.header, isDark && styles.darkHeader]}>
@@ -200,12 +207,11 @@ export default function AppSettingsModal({
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
               {/* Books Section */}
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, isDark && styles.darkText]}>
-                  📚 Book Defaults
-                </Text>
-                <Text style={[styles.sectionDescription, isDark && styles.darkSecondaryText]}>
-                  Set default format and source for new books
-                </Text>
+                <SectionHeader
+                  title="Book Defaults"
+                  description="Set default format and source for new books"
+                  icon={BookOpen}
+                />
 
                 <FormatSelector
                   title="Default Book Format"
@@ -242,12 +248,11 @@ export default function AppSettingsModal({
 
               {/* Movies Section */}
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, isDark && styles.darkText]}>
-                  🎬 Movie Defaults
-                </Text>
-                <Text style={[styles.sectionDescription, isDark && styles.darkSecondaryText]}>
-                  Set default format and source for new movies
-                </Text>
+                <SectionHeader
+                  title="Movie Defaults"
+                  description="Set default format and source for new movies"
+                  icon={Film}
+                />
 
                 <FormatSelector
                   title="Default Movie Format"
@@ -283,15 +288,83 @@ export default function AppSettingsModal({
                 />
               </View>
 
+              {/* List Filtering Section */}
+              <View style={styles.section}>
+                <SectionHeader
+                  title="List Filtering"
+                  description="Choose default tab and sort behavior for your lists"
+                  icon={ListFilter}
+                />
+
+                <FormatSelector
+                  title="Default Book Tab"
+                  icon={BookOpen}
+                  options={[
+                    { value: 'completed', label: 'Done' },
+                    { value: 'inProgress', label: 'Reading' },
+                    { value: 'planned', label: 'Planned' },
+                    { value: 'fails', label: 'Stopped' },
+                    { value: 'allTime', label: 'All Time' },
+                  ]}
+                  selectedValue={localSettings.defaultBookListTab}
+                  onValueChange={(value) =>
+                    setLocalSettings((prev) => ({ ...prev, defaultBookListTab: value as AppSettings['defaultBookListTab'] }))
+                  }
+                />
+
+                <FormatSelector
+                  title="Default Movie Tab"
+                  icon={Film}
+                  options={[
+                    { value: 'completed', label: 'Done' },
+                    { value: 'inProgress', label: 'Watching' },
+                    { value: 'planned', label: 'Planned' },
+                    { value: 'fails', label: 'Stopped' },
+                    { value: 'allTime', label: 'All Time' },
+                  ]}
+                  selectedValue={localSettings.defaultMovieListTab}
+                  onValueChange={(value) =>
+                    setLocalSettings((prev) => ({ ...prev, defaultMovieListTab: value as AppSettings['defaultMovieListTab'] }))
+                  }
+                />
+
+                <FormatSelector
+                  title="Default List Sort Order"
+                  icon={ArrowUpDown}
+                  options={[
+                    { value: 'newest', label: 'Newest first' },
+                    { value: 'oldest', label: 'Oldest first' },
+                  ]}
+                  selectedValue={localSettings.defaultListSortOrder}
+                  onValueChange={(value) =>
+                    setLocalSettings((prev) => ({ ...prev, defaultListSortOrder: value as AppSettings['defaultListSortOrder'] }))
+                  }
+                />
+
+                <FormatSelector
+                  title="Default List Numbering"
+                  icon={ListFilter}
+                  options={[
+                    { value: 'highestTop', label: 'Highest at top' },
+                    { value: 'lowestTop', label: 'Lowest at top' },
+                  ]}
+                  selectedValue={localSettings.defaultListNumbering}
+                  onValueChange={(value) =>
+                    setLocalSettings((prev) => ({ ...prev, defaultListNumbering: value as AppSettings['defaultListNumbering'] }))
+                  }
+                />
+              </View>
+
               {/* Info Section */}
               <View style={[styles.infoSection, isDark && styles.darkInfoSection]}>
-                <Settings size={20} color={isDark ? '#60A5FA' : '#3B82F6'} />
+                <SlidersHorizontal size={20} color={isDark ? '#60A5FA' : '#3B82F6'} />
                 <View style={styles.infoContent}>
                   <Text style={[styles.infoTitle, isDark && styles.darkText]}>
                     How Default Settings Work
                   </Text>
                   <Text style={[styles.infoText, isDark && styles.darkSecondaryText]}>
                     • Default format and source will be pre-selected when adding new items{'\n'}
+                    • Default tabs, sort order, and numbering are used when opening Books and Movies{'\n'}
                     • You can still change these values for individual items{'\n'}
                     • Settings only apply to new items, not existing ones{'\n'}
                     • Leave source fields empty if you don't want a default
@@ -336,8 +409,22 @@ export default function AppSettingsModal({
           </>
         )}
       </View>
+  );
+}
 
-
+export default function AppSettingsModal({
+  visible,
+  onClose,
+  isDark = false,
+}: AppSettingsModalProps) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <AppSettingsPanel onClose={onClose} isDark={isDark} />
     </Modal>
   );
 }
@@ -391,6 +478,23 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 32,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  sectionHeaderIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  darkSectionHeaderIconWrap: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
   },
   sectionTitle: {
     fontSize: 18,

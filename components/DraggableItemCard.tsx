@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated, Alert, Platform, Ac
 import { Trash2, Star, GripVertical } from 'lucide-react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Book, Movie } from '@/types';
+import MoviePosterTitleBlock from '@/components/MoviePosterTitleBlock';
+import { stripDirectedByPrefix } from '@/utils/formatDirectorDisplay';
 
 interface DraggableItemCardProps {
   item: Book | Movie;
@@ -143,10 +145,15 @@ export default function DraggableItemCard({
     const format = item.format ? `, format: ${item.format}` : '';
     const completedDate = item.completedDate ? `, completed on ${formatDate(item.completedDate)}` : '';
     const allTime = item.isAllTime ? ', marked as all-time favorite' : '';
-    const notes = item.notes ? `, notes: ${item.notes}` : '';
+    const descA11y = item.description ? `, description: ${item.description}` : '';
+    const showNotesCopy = !(isDark && !isBook) && item.notes;
+    const notes = showNotesCopy ? `, notes: ${item.notes}` : '';
     const reorderHint = canReorder ? '. This item can be reordered by dragging' : '';
-    
-    return `${position} ${itemType}: ${item.title} by ${item.author}${rating}${progress}${format}${completedDate}${allTime}${notes}${reorderHint}`;
+    const titleCredit = isBook
+      ? `${item.title}${item.author ? ` by ${item.author}` : ''}`
+      : `${item.title}${item.author ? `, Director ${stripDirectedByPrefix(item.author)}` : ''}`;
+
+    return `${position} ${itemType}: ${titleCredit}${rating}${progress}${format}${completedDate}${allTime}${notes}${reorderHint}`;
   };
 
   const getAccessibilityHint = () => {
@@ -358,36 +365,59 @@ export default function DraggableItemCard({
             </View>
             
             <View style={styles.details}>
-              <View style={styles.titleAuthorRow}>
-                <Text 
-                  style={[styles.title, isDark && styles.darkText]} 
-                  numberOfLines={1}
+              {isDark && !isBook ? (
+                <View
                   {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                 >
-                  {item.title}
-                </Text>
-                <Text 
-                  style={[styles.authorSeparator, isDark && styles.darkSecondaryText]}
-                  {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                >
-                  {' by '}
-                </Text>
-                <Text 
-                  style={[styles.author, isDark && styles.darkSecondaryText]} 
-                  numberOfLines={1}
-                  {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                >
-                  {item.author}
-                </Text>
-                {item.isAllTime && (
-                  <View 
-                    style={styles.allTimeBadge}
+                  <View style={styles.movieHeadlineRow}>
+                    <View style={styles.moviePosterTitleWrap}>
+                      <MoviePosterTitleBlock
+                        title={item.title}
+                        directorOrAuthor={item.author}
+                      />
+                    </View>
+                    {item.isAllTime && (
+                      <View 
+                        style={styles.allTimeBadge}
+                        {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                      >
+                        <Star size={8} color="#F59E0B" fill="#F59E0B" />
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.titleAuthorRow}>
+                  <Text 
+                    style={[styles.title, isDark && styles.darkText]} 
+                    numberOfLines={1}
                     {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                   >
-                    <Star size={8} color="#F59E0B" fill="#F59E0B" />
-                  </View>
-                )}
-              </View>
+                    {item.title}
+                  </Text>
+                  <Text 
+                    style={[styles.authorSeparator, isDark && styles.darkSecondaryText]}
+                    {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                  >
+                    {' by '}
+                  </Text>
+                  <Text 
+                    style={[styles.author, isDark && styles.darkSecondaryText]} 
+                    numberOfLines={1}
+                    {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                  >
+                    {item.author}
+                  </Text>
+                  {item.isAllTime && (
+                    <View 
+                      style={styles.allTimeBadge}
+                      {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                    >
+                      <Star size={8} color="#F59E0B" fill="#F59E0B" />
+                    </View>
+                  )}
+                </View>
+              )}
               
               <View style={styles.metaRow}>
                 {getFormatBadge()}
@@ -404,7 +434,16 @@ export default function DraggableItemCard({
               
               {renderProgress()}
               
-              {item.notes && (
+              {!(isDark && !isBook) && item.description ? (
+                <Text 
+                  style={[styles.notes, isDark && styles.darkTertiaryText]} 
+                  numberOfLines={2}
+                  {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                >
+                  {item.description}
+                </Text>
+              ) : null}
+              {!(isDark && !isBook) && item.notes ? (
                 <Text 
                   style={[styles.notes, isDark && styles.darkTertiaryText]} 
                   numberOfLines={1}
@@ -412,7 +451,7 @@ export default function DraggableItemCard({
                 >
                   {item.notes}
                 </Text>
-              )}
+              ) : null}
             </View>
             
             <View style={styles.webActions}>
@@ -560,36 +599,59 @@ export default function DraggableItemCard({
                   </View>
                   
                   <View style={styles.details}>
-                    <View style={styles.titleAuthorRow}>
-                      <Text 
-                        style={[styles.title, isDark && styles.darkText]} 
-                        numberOfLines={1}
+                    {isDark && !isBook ? (
+                      <View
                         {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                       >
-                        {item.title}
-                      </Text>
-                      <Text 
-                        style={[styles.authorSeparator, isDark && styles.darkSecondaryText]}
-                        {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                      >
-                        {' by '}
-                      </Text>
-                      <Text 
-                        style={[styles.author, isDark && styles.darkSecondaryText]} 
-                        numberOfLines={1}
-                        {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                      >
-                        {item.author}
-                      </Text>
-                      {item.isAllTime && (
-                        <View 
-                          style={styles.allTimeBadge}
+                        <View style={styles.movieHeadlineRow}>
+                          <View style={styles.moviePosterTitleWrap}>
+                            <MoviePosterTitleBlock
+                              title={item.title}
+                              directorOrAuthor={item.author}
+                            />
+                          </View>
+                          {item.isAllTime && (
+                            <View 
+                              style={styles.allTimeBadge}
+                              {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                            >
+                              <Star size={8} color="#F59E0B" fill="#F59E0B" />
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.titleAuthorRow}>
+                        <Text 
+                          style={[styles.title, isDark && styles.darkText]} 
+                          numberOfLines={1}
                           {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                         >
-                          <Star size={8} color="#F59E0B" fill="#F59E0B" />
-                        </View>
-                      )}
-                    </View>
+                          {item.title}
+                        </Text>
+                        <Text 
+                          style={[styles.authorSeparator, isDark && styles.darkSecondaryText]}
+                          {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                        >
+                          {' by '}
+                        </Text>
+                        <Text 
+                          style={[styles.author, isDark && styles.darkSecondaryText]} 
+                          numberOfLines={1}
+                          {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                        >
+                          {item.author}
+                        </Text>
+                        {item.isAllTime && (
+                          <View 
+                            style={styles.allTimeBadge}
+                            {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                          >
+                            <Star size={8} color="#F59E0B" fill="#F59E0B" />
+                          </View>
+                        )}
+                      </View>
+                    )}
                     
                     <View style={styles.metaRow}>
                       {getFormatBadge()}
@@ -606,7 +668,16 @@ export default function DraggableItemCard({
                     
                     {renderProgress()}
                     
-                    {item.notes && (
+                    {!(isDark && !isBook) && item.description ? (
+                      <Text 
+                        style={[styles.notes, isDark && styles.darkTertiaryText]} 
+                        numberOfLines={2}
+                        {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                      >
+                        {item.description}
+                      </Text>
+                    ) : null}
+                    {!(isDark && !isBook) && item.notes ? (
                       <Text 
                         style={[styles.notes, isDark && styles.darkTertiaryText]} 
                         numberOfLines={1}
@@ -614,7 +685,7 @@ export default function DraggableItemCard({
                       >
                         {item.notes}
                       </Text>
-                    )}
+                    ) : null}
                   </View>
                 </View>
               </TouchableOpacity>
@@ -654,36 +725,59 @@ export default function DraggableItemCard({
                 </View>
                 
                 <View style={styles.details}>
-                  <View style={styles.titleAuthorRow}>
-                    <Text 
-                      style={[styles.title, isDark && styles.darkText]} 
-                      numberOfLines={1}
+                  {isDark && !isBook ? (
+                    <View
                       {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                     >
-                      {item.title}
-                    </Text>
-                    <Text 
-                      style={[styles.authorSeparator, isDark && styles.darkSecondaryText]}
-                      {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                    >
-                      {' by '}
-                    </Text>
-                    <Text 
-                      style={[styles.author, isDark && styles.darkSecondaryText]} 
-                      numberOfLines={1}
-                      {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
-                    >
-                      {item.author}
-                    </Text>
-                    {item.isAllTime && (
-                      <View 
-                        style={styles.allTimeBadge}
+                      <View style={styles.movieHeadlineRow}>
+                        <View style={styles.moviePosterTitleWrap}>
+                          <MoviePosterTitleBlock
+                            title={item.title}
+                            directorOrAuthor={item.author}
+                          />
+                        </View>
+                        {item.isAllTime && (
+                          <View 
+                            style={styles.allTimeBadge}
+                            {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                          >
+                            <Star size={8} color="#F59E0B" fill="#F59E0B" />
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.titleAuthorRow}>
+                      <Text 
+                        style={[styles.title, isDark && styles.darkText]} 
+                        numberOfLines={1}
                         {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
                       >
-                        <Star size={8} color="#F59E0B" fill="#F59E0B" />
-                      </View>
-                    )}
-                  </View>
+                        {item.title}
+                      </Text>
+                      <Text 
+                        style={[styles.authorSeparator, isDark && styles.darkSecondaryText]}
+                        {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                      >
+                        {' by '}
+                      </Text>
+                      <Text 
+                        style={[styles.author, isDark && styles.darkSecondaryText]} 
+                        numberOfLines={1}
+                        {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                      >
+                        {item.author}
+                      </Text>
+                      {item.isAllTime && (
+                        <View 
+                          style={styles.allTimeBadge}
+                          {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                        >
+                          <Star size={8} color="#F59E0B" fill="#F59E0B" />
+                        </View>
+                      )}
+                    </View>
+                  )}
                   
                   <View style={styles.metaRow}>
                     {getFormatBadge()}
@@ -700,7 +794,16 @@ export default function DraggableItemCard({
                   
                   {renderProgress()}
                   
-                  {item.notes && (
+                  {!(isDark && !isBook) && item.description ? (
+                    <Text 
+                      style={[styles.notes, isDark && styles.darkTertiaryText]} 
+                      numberOfLines={2}
+                      {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+                    >
+                      {item.description}
+                    </Text>
+                  ) : null}
+                  {!(isDark && !isBook) && item.notes ? (
                     <Text 
                       style={[styles.notes, isDark && styles.darkTertiaryText]} 
                       numberOfLines={1}
@@ -708,7 +811,7 @@ export default function DraggableItemCard({
                     >
                       {item.notes}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
                 
                 <View 
@@ -746,9 +849,15 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   darkContainer: {
-    backgroundColor: '#1F2937',
-    borderColor: '#374151',
-    borderWidth: 0.5,
+    borderRadius: 11,
+    backgroundColor: '#2C3F5A',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+    shadowColor: '#020617',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 18,
+    elevation: 8,
   },
   draggingContainer: {
     shadowOpacity: 0.2,
@@ -825,6 +934,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 0,
   },
+  movieHeadlineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flexWrap: 'nowrap',
+    gap: 0,
+  },
+  moviePosterTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
   title: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
@@ -886,7 +1005,7 @@ const styles = StyleSheet.create({
   completedDate: {
     fontSize: 10,
     fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
+    color: '#6B7280',
     lineHeight: 12,
   },
   darkTertiaryText: {
@@ -919,7 +1038,7 @@ const styles = StyleSheet.create({
   notes: {
     fontSize: 10,
     fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
+    color: '#6B7280',
     fontStyle: 'italic',
     lineHeight: 14,
   },

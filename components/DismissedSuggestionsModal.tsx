@@ -35,11 +35,14 @@ interface DismissedSuggestionsModalProps {
   isDark?: boolean;
 }
 
-export default function DismissedSuggestionsModal({
-  visible,
+/** Inner content — use inside parent settings sheet to avoid stacked modals. */
+export function DismissedSuggestionsPanel({
   onClose,
   isDark = false,
-}: DismissedSuggestionsModalProps) {
+}: {
+  onClose: () => void;
+  isDark?: boolean;
+}) {
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Map<string, DismissedSuggestion>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
 
@@ -150,12 +153,6 @@ export default function DismissedSuggestionsModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
       <View style={[styles.container, isDark && styles.darkContainer]}>
         {/* Header */}
         <View style={[styles.header, isDark && styles.darkHeader]}>
@@ -295,6 +292,22 @@ export default function DismissedSuggestionsModal({
             </View>
           </ScrollView>
       </View>
+  );
+}
+
+export default function DismissedSuggestionsModal({
+  visible,
+  onClose,
+  isDark = false,
+}: DismissedSuggestionsModalProps) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <DismissedSuggestionsPanel onClose={onClose} isDark={isDark} />
     </Modal>
   );
 }

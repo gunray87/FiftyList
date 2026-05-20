@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Pressable, Animated, Dimensions, AccessibilityInfo, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { TrendingUp, ChevronUp, ChartBar as BarChart3 } from 'lucide-react-native';
+import { TrendingUp, ChevronUp, ChartBar as BarChart3, Trophy } from 'lucide-react-native';
 
 interface GoalProgressProps {
   completed: number;
@@ -487,9 +487,13 @@ export default function GoalProgress({
             : Math.round((completedForYear / 12) * 10) / 10}`}
         >
           <View style={styles.basicStatItem}>
-            <Text style={[styles.basicStatValue, { color: primaryColor }]}>
-              {completedForYear >= goal ? '🎉' : remaining}
-            </Text>
+            {completedForYear >= goal ? (
+              <View style={styles.goalAchievedIconWrap} accessibilityLabel="Goal achieved">
+                <Trophy size={22} color={primaryColor} strokeWidth={2} accessibilityElementsHidden />
+              </View>
+            ) : (
+              <Text style={[styles.basicStatValue, { color: primaryColor }]}>{remaining}</Text>
+            )}
             <Text style={[styles.basicStatLabel, isDark && styles.darkSecondaryText]}>
               {completedForYear >= goal 
                 ? (isCurrentYear ? 'Goal achieved!' : 'Goal was achieved!') 
@@ -539,7 +543,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 8,
     marginHorizontal: 20,
-    marginTop: 8,
+    marginTop: 0,
     marginBottom: 8,
     shadowColor: '#000',
     shadowOffset: {
@@ -672,6 +676,12 @@ const styles = StyleSheet.create({
   basicStatItem: {
     alignItems: 'center',
     flex: 1,
+  },
+  goalAchievedIconWrap: {
+    height: 22,
+    marginBottom: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   basicStatValue: {
     fontSize: 14,

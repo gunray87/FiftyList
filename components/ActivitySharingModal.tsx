@@ -16,6 +16,7 @@ import {
 import { X, Share2, Calendar, Filter, Eye, Copy, Check, Bell } from 'lucide-react-native';
 import { SharingOptions, ActivityType, ItemType } from '@/types';
 import { ActivitySharing } from '@/utils/activitySharing';
+import { alertAfterShareError } from '@/utils/postShareFlow';
 import NotificationSettingsModal from './NotificationSettingsModal';
 
 interface ActivitySharingModalProps {
@@ -101,30 +102,43 @@ export default function ActivitySharingModal({
   };
 
   const handleShare = async () => {
-    try {
-      const shareContent = {
-        message: previewText,
-        title: 'My Reading & Watching Activity',
-      };
+    const shareContent = {
+      message: previewText,
+      title: 'FiftyList — My Reading & Watching Activity',
+    };
 
+    try {
       if (Platform.OS === 'web') {
-        // For web, use navigator.share if available, otherwise copy to clipboard
         if (navigator.share) {
           await navigator.share(shareContent);
         } else {
           await navigator.clipboard.writeText(previewText);
           Alert.alert('Copied!', 'Content copied to clipboard');
         }
-      } else {
-        // For mobile, use React Native Share
-        const result = await Share.share(shareContent);
-        if (result.action === Share.sharedAction) {
-          console.log('Content shared successfully');
-        }
+        return;
       }
+
+      // iOS: do not present the share sheet from inside a pageSheet modal — it can leave a
+      // blank window when the sheet dismisses. Close first, then share after a short delay.
+      if (Platform.OS === 'ios') {
+        onClose();
+        setTimeout(() => {
+          (async () => {
+            try {
+              await Share.share(shareContent);
+            } catch (err) {
+              console.error('Error sharing content:', err);
+              alertAfterShareError('Error', 'Failed to share content. Please try again.');
+            }
+          })();
+        }, 400);
+        return;
+      }
+
+      await Share.share(shareContent);
     } catch (error) {
       console.error('Error sharing content:', error);
-      Alert.alert('Error', 'Failed to share content. Please try again.');
+      alertAfterShareError('Error', 'Failed to share content. Please try again.');
     }
   };
 

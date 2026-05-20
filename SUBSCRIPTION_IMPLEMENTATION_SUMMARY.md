@@ -219,11 +219,11 @@ All components use:
 - No receipt validation
 - No restore purchases functionality
 
-### Authentication
-- No user accounts (Supabase not set up)
+### Identity & Entitlements
+- No RevenueCat integration yet (subscriptions are still simulated)
 - Subscription is local only (not synced across devices)
-- No email/password login
-- No social login (Apple, Google)
+- No restore purchases flow yet
+- No App Store receipt-backed entitlement checks
 
 ### Backend Integration
 - No server-side subscription validation
@@ -243,15 +243,11 @@ npm install react-native-purchases
 - Update `upgradeToPremium()` to use RevenueCat
 - Add receipt validation
 
-### 2. Authentication (Supabase)
-```bash
-npm install @supabase/supabase-js
-```
-- Set up Supabase project
-- Create AuthModal component
-- Implement email/password auth
-- Add Apple Sign In
-- Add Google Sign In
+### 2. Entitlement & Restore Flow (Apple + RevenueCat)
+- Implement RevenueCat SDK initialization
+- Wire `upgradeToPremium()` to purchase products
+- Add "Restore Purchases" and `syncPurchases` handling
+- Update feature gates to use RevenueCat entitlements
 
 ### 3. Backend API
 - Create subscription validation endpoint
@@ -266,8 +262,8 @@ npm install @supabase/supabase-js
 ### Known Limitations
 1. Subscription is stored locally only (will reset if app data is cleared)
 2. No actual payment processing (simulated only)
-3. No authentication required (anyone can "upgrade")
-4. Feature gating is client-side only (not secure)
+3. No purchase verification yet (anyone can "upgrade")
+4. Feature gating is client-side only until entitlements are wired
 
 ### Recommended Testing Flow
 1. Start as free user

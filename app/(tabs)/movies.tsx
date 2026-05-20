@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList, Text, Alert, Share, Modal, TextInput, Touch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Film, Clock, Target, X, Star } from 'lucide-react-native';
 import { useDataStore } from '@/hooks/useDataStore';
+import { useAppSettings } from '@/hooks/useAppSettings';
 import Header from '@/components/Header';
 import GoalProgress from '@/components/GoalProgress';
 import TabNavigation from '@/components/TabNavigation';
@@ -13,6 +14,13 @@ import ImportModal from '@/components/ImportModal';
 import SearchBar from '@/components/SearchBar';
 import YearFolderSelector from '../../components/YearFolderSelector';
 import ActivitySharingModal from '@/components/ActivitySharingModal';
+import ExportOptionsModal from '@/components/ExportOptionsModal';
+import { fieldMatchesQuery } from '@/utils/searchMatch';
+import { alertAfterShareError, shareExportViaMessages } from '@/utils/postShareFlow';
+import { ExportOptions } from '@/types';
+import { ListSortBy, parseQuickListIntent } from '@/utils/llmListSearch';
+
+const PREMIUM_LIST_SEARCH_MAX_CHARS = 120;
 
 export default function MoviesScreen() {
   const { 
@@ -27,7 +35,8 @@ export default function MoviesScreen() {
     importItems,
     forceUpdate 
   } = useDataStore();
-  
+  const { settings, isLoading: isSettingsLoading } = useAppSettings();
+
   const [activeTab, setActiveTab] = useState('completed');
   const [selectedYear, setSelectedYear] = useState<number | 'all'>(new Date().getFullYear());
   const [showAddModal, setShowAddModal] = useState(false);
@@ -38,9 +47,20 @@ export default function MoviesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [showExportOptionsModal, setShowExportOptionsModal] = useState(false);
   const [showSharingModal, setShowSharingModal] = useState(false);
-
+  const [panelView, setPanelView] = useState<'goal' | 'categories'>('categories');
   const currentYear = new Date().getFullYear();
+
+  useEffect(() => {
+    if (isSettingsLoading) return;
+    setActiveTab(settings.defaultMovieListTab);
+    if (settings.defaultMovieListTab === 'completed') {
+      setSelectedYear(currentYear);
+    } else {
+      setSelectedYear('all');
+    }
+  }, [isSettingsLoading, settings.defaultMovieListTab, currentYear]);
   
   // Enhanced state monitoring for movies screen
   useEffect(() => {
@@ -75,6 +95,32 @@ export default function MoviesScreen() {
     const completionYear = getCompletionYear(movie);
     return completionYear === currentYear;
   }).length;
+
+  const getMovieRecencyTimestamp = (movie: any, category: string): number => {
+    const pick = () => {
+      if (category === 'completed') return movie.completedDate;
+      if (category === 'inProgress') return movie.dateStarted;
+      if (category === 'planned') return movie.dateAdded;
+      if (category === 'fails') return movie.dateAbandoned;
+      return movie.completedDate || movie.dateAdded || movie.dateStarted || movie.dateAbandoned;
+    };
+    const value = pick();
+    if (value) {
+      const ts = new Date(value).getTime();
+      if (!Number.isNaN(ts)) return ts;
+    }
+    return typeof movie.id === 'number' ? movie.id : 0;
+  };
+
+  const listSearchIntent = useMemo(() => parseQuickListIntent(searchQuery), [searchQuery]);
+
+  useEffect(() => {
+    const category = listSearchIntent?.category;
+    if (!category) return;
+    if (activeTab !== category) {
+      setActiveTab(category);
+    }
+  }, [listSearchIntent?.category, activeTab]);
 
   // Dynamic tabs that respect the year filter
   const tabs = useMemo(() => {
@@ -126,27 +172,71 @@ export default function MoviesScreen() {
       });
     }
     
-    // Filter by search query
+    if (listSearchIntent) {
+      const includes = (field: unknown, target?: string) =>
+        !target || fieldMatchesQuery(typeof field === 'string' ? field : '', target.toLowerCase());
+      currentMovies = currentMovies.filter((movie: any) => {
+        const yearOk = !listSearchIntent.year || movie.publicationYear === listSearchIntent.year;
+        return (
+          yearOk &&
+          includes(movie.title, listSearchIntent.titleIncludes?.toLowerCase()) &&
+          includes(movie.author, listSearchIntent.authorIncludes?.toLowerCase()) &&
+          (includes(movie.notes, listSearchIntent.notesIncludes?.toLowerCase()) ||
+            includes(movie.description, listSearchIntent.notesIncludes?.toLowerCase())) &&
+          includes(movie.source, listSearchIntent.sourceIncludes?.toLowerCase())
+        );
+      });
+    }
+
     if (!searchQuery.trim()) {
       console.log(`🎬 No search query, returning ${currentMovies.length} movies for "${activeTab}"`);
       return currentMovies;
     }
 
-    const query = searchQuery.toLowerCase().trim();
-    const filtered = currentMovies.filter(movie => 
-      (movie.title && movie.title.toLowerCase().includes(query)) ||
-      (movie.author && movie.author.toLowerCase().includes(query)) ||
-      (movie.notes && movie.notes.toLowerCase().includes(query)) ||
-      (movie.source && movie.source.toLowerCase().includes(query)) ||
-      (movie.publicationYear && movie.publicationYear.toString().includes(query))
-    );
+    const queryToUse = (listSearchIntent?.textQuery || (!listSearchIntent ? searchQuery : '')).toLowerCase().trim();
+    const filtered = !queryToUse
+      ? currentMovies
+      : currentMovies.filter(movie =>
+          fieldMatchesQuery(movie.title, queryToUse) ||
+          fieldMatchesQuery(movie.author, queryToUse) ||
+          fieldMatchesQuery(movie.description, queryToUse) ||
+          fieldMatchesQuery(movie.notes, queryToUse) ||
+          fieldMatchesQuery(movie.source, queryToUse) ||
+          (movie.publicationYear != null && String(movie.publicationYear).includes(queryToUse))
+        );
     
     console.log(`🎬 Search filtered ${currentMovies.length} -> ${filtered.length} movies`);
     return filtered;
-  }, [movies, activeTab, searchQuery, selectedYear, forceUpdate]);
+  }, [movies, activeTab, searchQuery, selectedYear, forceUpdate, listSearchIntent]);
 
-  // Determine if current tab can be reordered (all except completed)
-  const canReorder = activeTab !== 'completed';
+  // Lists are now deterministic by recency (newest first), so manual reorder is disabled.
+  const canReorder = false;
+
+  const sortedMovies = useMemo(() => {
+    const sortBy: ListSortBy = listSearchIntent?.sortBy || settings.defaultListSortOrder;
+    return [...filteredMovies].sort((a: any, b: any) => {
+      if (sortBy === 'oldest') {
+        const diff = getMovieRecencyTimestamp(a, activeTab) - getMovieRecencyTimestamp(b, activeTab);
+        if (diff !== 0) return diff;
+      } else if (sortBy === 'rating_desc') {
+        const diff = (b.rating || 0) - (a.rating || 0);
+        if (diff !== 0) return diff;
+      } else if (sortBy === 'rating_asc') {
+        const diff = (a.rating || 0) - (b.rating || 0);
+        if (diff !== 0) return diff;
+      } else if (sortBy === 'title_asc') {
+        const diff = String(a.title || '').localeCompare(String(b.title || ''));
+        if (diff !== 0) return diff;
+      } else if (sortBy === 'title_desc') {
+        const diff = String(b.title || '').localeCompare(String(a.title || ''));
+        if (diff !== 0) return diff;
+      } else {
+        const diff = getMovieRecencyTimestamp(b, activeTab) - getMovieRecencyTimestamp(a, activeTab);
+        if (diff !== 0) return diff;
+      }
+      return (typeof b.id === 'number' ? b.id : 0) - (typeof a.id === 'number' ? a.id : 0);
+    });
+  }, [filteredMovies, activeTab, listSearchIntent?.sortBy, settings.defaultListSortOrder]);
 
   const handleAddMovie = () => {
     setEditingMovie(undefined);
@@ -206,6 +296,10 @@ export default function MoviesScreen() {
   };
 
   const handleExport = async () => {
+    setShowExportOptionsModal(true);
+  };
+
+  const runExportWithOptions = async (exportOptions: ExportOptions) => {
     console.log('📤 Export button pressed');
     console.log('📤 Platform:', Platform.OS);
     console.log('📤 Share API available:', !!Share.share);
@@ -214,7 +308,7 @@ export default function MoviesScreen() {
     
     try {
       console.log('📤 Generating export text...');
-      const exportText = generateComprehensiveExport();
+      const exportText = generateComprehensiveExport(exportOptions);
       console.log('📤 Export text generated, length:', exportText.length);
       
       if (exportText.length === 0) {
@@ -262,6 +356,27 @@ export default function MoviesScreen() {
               }
             },
             {
+              text: 'Messages',
+              onPress: async () => {
+                try {
+                  const opened = await shareExportViaMessages(exportText);
+                  if (!opened) {
+                    Alert.alert(
+                      'Messages Not Available',
+                      'SMS/iMessage is not available on this device. Try Share instead.',
+                      [{ text: 'OK' }]
+                    );
+                  }
+                } catch (smsError) {
+                  console.error('❌ Messages share error:', smsError);
+                  alertAfterShareError(
+                    'Messages Error',
+                    'Could not open Messages. Please try Share instead.'
+                  );
+                }
+              }
+            },
+            {
               text: 'Share',
               onPress: async () => {
                 try {
@@ -269,32 +384,34 @@ export default function MoviesScreen() {
                   if (Share.share) {
                     const result = await Share.share({
                       message: exportText,
-                      title: 'My Complete Reading & Watching List',
+                      title: 'FiftyList — My Complete Reading & Watching List',
                     });
                     
                     console.log('📤 Share result:', result);
                     
-                    if (result.action === Share.sharedAction) {
-                      console.log('📤 Mobile share completed successfully');
-                      Alert.alert(
-                        'Export Successful!', 
-                        'Your reading list has been shared successfully.',
-                        [{ text: 'OK' }]
-                      );
-                    } else if (result.action === Share.dismissedAction) {
-                      console.log('📤 Share was dismissed by user');
-                      Alert.alert(
-                        'Export Cancelled', 
-                        'The share was cancelled. You can try again anytime.',
-                        [{ text: 'OK' }]
-                      );
-                    } else {
-                      console.log('📤 Share action unknown:', result.action);
-                      Alert.alert(
-                        'Export Status Unknown', 
-                        'The export may have been completed. Check your share options.',
-                        [{ text: 'OK' }]
-                      );
+                    if (Platform.OS !== 'ios') {
+                      if (result.action === Share.sharedAction) {
+                        console.log('📤 Mobile share completed successfully');
+                        Alert.alert(
+                          'Export Successful!', 
+                          'Your reading list has been shared successfully.',
+                          [{ text: 'OK' }]
+                        );
+                      } else if (result.action === Share.dismissedAction) {
+                        console.log('📤 Share was dismissed by user');
+                        Alert.alert(
+                          'Export Cancelled', 
+                          'The share was cancelled. You can try again anytime.',
+                          [{ text: 'OK' }]
+                        );
+                      } else {
+                        console.log('📤 Share action unknown:', result.action);
+                        Alert.alert(
+                          'Export Status Unknown', 
+                          'The export may have been completed. Check your share options.',
+                          [{ text: 'OK' }]
+                        );
+                      }
                     }
                   } else {
                     console.log('📤 Share API not available');
@@ -306,10 +423,9 @@ export default function MoviesScreen() {
                   }
                 } catch (shareError) {
                   console.error('❌ Share error:', shareError);
-                  Alert.alert(
+                  alertAfterShareError(
                     'Share Error',
-                    'Failed to share export data. Your data has been prepared.',
-                    [{ text: 'OK' }]
+                    'Failed to share export data. Your data has been prepared.'
                   );
                 }
               }
@@ -348,6 +464,12 @@ export default function MoviesScreen() {
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== 'completed' && panelView === 'goal') {
+      setPanelView('categories');
+    }
+  }, [activeTab, panelView]);
+
   const getSearchPlaceholder = () => {
     const tabLabels: { [key: string]: string } = {
       completed: 'Search completed movies...',
@@ -367,7 +489,7 @@ export default function MoviesScreen() {
       <View style={styles.emptyState}>
         <Film size={48} color="#6B7280" />
         <Text style={styles.emptyText}>
-          {isSearching ? 'No movies found' : isYearFiltered ? `No movies completed in ${selectedYear}` : 'No movies in this category'}
+          {isSearching ? 'No movies found' : isYearFiltered ? 'No movies completed' : 'No movies in this category'}
         </Text>
         <Text style={styles.emptySubtext}>
           {isSearching 
@@ -402,19 +524,23 @@ export default function MoviesScreen() {
       return null;
     }
 
+    const displayIndex =
+      settings.defaultListNumbering === 'highestTop'
+        ? sortedMovies.length - index - 1
+        : index;
+
     try {
       if (canReorder) {
         return (
           <DraggableItemCard
             item={item}
-            index={index}
+            index={displayIndex}
             onEdit={() => handleEditMovie(item)}
             onDelete={() => handleDeleteMovie(item.id)}
             onDragEnd={handleReorderMovie}
             isBook={false}
             primaryColor="#3B82F6"
             isDark={true}
-            backgroundColor="#111827"
             canReorder={true}
           />
         );
@@ -422,13 +548,12 @@ export default function MoviesScreen() {
         return (
           <ItemCard
             item={item}
-            index={index}
+            index={displayIndex}
             onEdit={() => handleEditMovie(item)}
             onDelete={() => handleDeleteMovie(item.id)}
             isBook={false}
             primaryColor="#3B82F6"
             isDark={true}
-            backgroundColor="#111827"
           />
         );
       }
@@ -439,7 +564,10 @@ export default function MoviesScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, Platform.OS === 'web' && styles.webContainer]}>
+    <SafeAreaView
+      style={[styles.container, Platform.OS === 'web' && styles.webContainer]}
+      edges={['top']}
+    >
       <Header
         title="Movies"
         onAddPress={handleAddMovie}
@@ -466,43 +594,100 @@ export default function MoviesScreen() {
         />
       )}
       
-      <GoalProgress
-        completed={completedThisYear}
-        goal={movieGoal}
-        year={currentYear}
-        onEditGoal={handleEditGoal}
-        primaryColor="#3B82F6"
-        secondaryColor="#2563EB"
-        isDark={true}
-        backgroundColor="#111827"
-        completedItems={movies.completed}
-        selectedYear={selectedYear}
-        showGoalTable={activeTab === 'completed'}
-      />
-      
-      <TabNavigation
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        tabs={tabs}
-        primaryColor="#3B82F6"
-        isDark={true}
-        backgroundColor="#111827"
-      />
+      <View style={styles.panelToggleWrap}>
+        <TouchableOpacity
+          style={[
+            styles.panelToggleButton,
+            panelView === 'categories' && styles.panelToggleButtonActive,
+          ]}
+          onPress={() => setPanelView('categories')}
+          accessibilityRole="button"
+          accessibilityLabel="Show list categories"
+        >
+          <Text
+            style={[
+              styles.panelToggleText,
+              panelView === 'categories' && styles.panelToggleTextActive,
+            ]}
+          >
+            Categories
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.panelToggleButton,
+            panelView === 'goal' && styles.panelToggleButtonActive,
+            activeTab !== 'completed' && styles.panelToggleButtonDisabled,
+          ]}
+          onPress={() => {
+            if (activeTab === 'completed') setPanelView('goal');
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Show goal progress"
+        >
+          <Text
+            style={[
+              styles.panelToggleText,
+              panelView === 'goal' && styles.panelToggleTextActive,
+              activeTab !== 'completed' && styles.panelToggleTextDisabled,
+            ]}
+          >
+            Goal
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* Search Bar - Show only when search is activated */}
-      {showSearch && (
-        <SearchBar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          placeholder={getSearchPlaceholder()}
+      {panelView === 'goal' && activeTab === 'completed' ? (
+        <GoalProgress
+          completed={completedThisYear}
+          goal={movieGoal}
+          year={currentYear}
+          onEditGoal={handleEditGoal}
+          primaryColor="#3B82F6"
+          secondaryColor="#2563EB"
+          isDark={true}
+          backgroundColor="#111827"
+          completedItems={movies.completed}
+          selectedYear={selectedYear}
+          showGoalTable={true}
+        />
+      ) : (
+        <TabNavigation
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          tabs={tabs}
+          primaryColor="#3B82F6"
           isDark={true}
           backgroundColor="#111827"
         />
       )}
 
+      {/* Search Bar - Show only when search is activated */}
+      {showSearch && (
+        <>
+          <SearchBar
+            searchQuery={searchQuery}
+            onSearchChange={(q) => setSearchQuery(q.slice(0, PREMIUM_LIST_SEARCH_MAX_CHARS))}
+            placeholder={getSearchPlaceholder()}
+            isDark={true}
+            backgroundColor="#111827"
+            maxLength={PREMIUM_LIST_SEARCH_MAX_CHARS}
+          />
+          {listSearchIntent?.explanationShort ? (
+            <View style={styles.llmSearchStatusRow}>
+              <Text style={styles.llmSearchStatusText}>{listSearchIntent.explanationShort}</Text>
+            </View>
+          ) : null}
+        </>
+      )}
+
       <FlatList
-        data={filteredMovies}
-        keyExtractor={(item) => `movie-${item?.id || Math.random()}`}
+        data={sortedMovies}
+        keyExtractor={(item, index) =>
+          item != null && item.id != null && !Number.isNaN(item.id)
+            ? `movie-${item.id}`
+            : `movie-missing-id-${index}`
+        }
         renderItem={renderItem}
         ListHeaderComponent={renderListHeader}
         ListEmptyComponent={renderEmptyState}
@@ -517,9 +702,6 @@ export default function MoviesScreen() {
         maxToRenderPerBatch={10}
         windowSize={10}
         initialNumToRender={10}
-        onError={(error) => {
-          console.error('❌ FlatList error:', error);
-        }}
       />
 
       <AddEditModal
@@ -543,6 +725,17 @@ export default function MoviesScreen() {
       <ActivitySharingModal
         visible={showSharingModal}
         onClose={() => setShowSharingModal(false)}
+        primaryColor="#3B82F6"
+        isDark={true}
+      />
+
+      <ExportOptionsModal
+        visible={showExportOptionsModal}
+        onClose={() => setShowExportOptionsModal(false)}
+        onConfirm={(opts) => {
+          setShowExportOptionsModal(false);
+          runExportWithOptions(opts);
+        }}
         primaryColor="#3B82F6"
         isDark={true}
       />
@@ -604,11 +797,59 @@ const styles = StyleSheet.create({
     maxHeight: '100vh',
   },
   listContent: {
-    paddingBottom: 0,
+    paddingBottom: 8,
+    flexGrow: 1,
   },
   webListContent: {
     paddingBottom: 0,
     minHeight: '100%',
+  },
+  panelToggleWrap: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 0,
+    marginBottom: 8,
+    backgroundColor: 'rgba(17,24,39,0.6)',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#1F2937',
+  },
+  panelToggleButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  panelToggleButtonActive: {
+    backgroundColor: '#1F2937',
+  },
+  panelToggleButtonDisabled: {
+    opacity: 0.55,
+  },
+  panelToggleText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#9CA3AF',
+  },
+  panelToggleTextActive: {
+    color: '#60A5FA',
+  },
+  panelToggleTextDisabled: {
+    color: '#6B7280',
+  },
+  llmSearchStatusRow: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  llmSearchStatusText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#DBEAFE',
   },
   reorderHint: {
     paddingHorizontal: 20,

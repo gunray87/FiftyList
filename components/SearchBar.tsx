@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, Keyboard } from 'react-native';
 import { Search, X } from 'lucide-react-native';
 
 interface SearchBarProps {
@@ -8,6 +8,11 @@ interface SearchBarProps {
   placeholder?: string;
   isDark?: boolean;
   backgroundColor?: string;
+  maxLength?: number;
+  showAIBadge?: boolean;
+  aiBadgeActive?: boolean;
+  /** Called when the keyboard search/return key is pressed (native). */
+  onSubmitSearch?: () => void;
 }
 
 export default function SearchBar({ 
@@ -15,10 +20,19 @@ export default function SearchBar({
   onSearchChange, 
   placeholder = "Search...", 
   isDark = false,
-  backgroundColor 
+  backgroundColor,
+  maxLength = 120,
+  showAIBadge = false,
+  aiBadgeActive = false,
+  onSubmitSearch,
 }: SearchBarProps) {
   const handleClear = () => {
     onSearchChange('');
+  };
+
+  const handleSubmitEditing = () => {
+    Keyboard.dismiss();
+    onSubmitSearch?.();
   };
 
   // Use the provided background color directly
@@ -44,6 +58,7 @@ export default function SearchBar({
           style={[styles.searchInput, isDark && styles.darkSearchInput]}
           value={searchQuery}
           onChangeText={onSearchChange}
+          maxLength={maxLength}
           placeholder={placeholder}
           placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
           autoCapitalize="none"
@@ -54,10 +69,34 @@ export default function SearchBar({
           accessibilityRole="searchbox"
           // Add stability props to prevent recycling crashes
           textAlignVertical="center"
-          blurOnSubmit={false}
+          blurOnSubmit
+          submitBehavior="submit"
           selectTextOnFocus={false}
           autoComplete="off"
+          onSubmitEditing={handleSubmitEditing}
         />
+
+        {showAIBadge && (
+          <View
+            style={[
+              styles.aiBadge,
+              isDark && styles.darkAIBadge,
+              aiBadgeActive && styles.aiBadgeActive,
+            ]}
+            accessibilityRole="text"
+            accessibilityLabel={aiBadgeActive ? 'AI search active' : 'AI search available'}
+          >
+            <Text
+              style={[
+                styles.aiBadgeText,
+                aiBadgeActive ? styles.aiBadgeTextActive : (isDark ? styles.darkAIBadgeText : undefined),
+              ]}
+              {...(Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no' })}
+            >
+              AI
+            </Text>
+          </View>
+        )}
         
         {searchQuery.length > 0 && (
           <TouchableOpacity 
@@ -111,5 +150,36 @@ const styles = StyleSheet.create({
   clearButton: {
     marginLeft: 8,
     padding: 2,
+  },
+  aiBadge: {
+    marginLeft: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  darkAIBadge: {
+    backgroundColor: 'rgba(124, 58, 237, 0.2)',
+    borderColor: 'rgba(196, 181, 253, 0.5)',
+  },
+  aiBadgeActive: {
+    backgroundColor: '#8B5CF6',
+    borderColor: '#8B5CF6',
+  },
+  aiBadgeText: {
+    fontSize: 9,
+    fontFamily: 'Inter-SemiBold',
+    color: '#7C3AED',
+    letterSpacing: 0.2,
+  },
+  darkAIBadgeText: {
+    color: '#C4B5FD',
+  },
+  aiBadgeTextActive: {
+    color: '#FFFFFF',
   },
 });

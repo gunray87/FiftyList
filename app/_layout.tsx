@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -9,13 +9,41 @@ import { DataStoreProvider } from '@/hooks/useDataStore';
 import { notificationService } from '@/utils/notificationService';
 import { ActivityLogger } from '@/utils/activityLogger';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
-import { AuthProvider } from '@/hooks/useAuth';
 
 import { OnboardingProvider } from '@/hooks/OnboardingContext';
 import OnboardingWrapper from '@/components/OnboardingWrapper';
-import { createContext, useContext } from 'react';
+import { getTmdbApiKey, TMDB_BASE_URL } from '@/utils/tmdbConfig';
+import { searchBooks } from '@/utils/bookSearch';
 
 SplashScreen.preventAutoHideAsync();
+
+/** Suggestion preload cache shape — matches Google Books branch in preloadBooks. */
+async function buildPreloadedBooksFromLocalCatalog(): Promise<any[]> {
+  const fantasy = await searchBooks('fantasy');
+  const merged = [...fantasy];
+  if (merged.length < 10) {
+    const fiction = await searchBooks('fiction');
+    for (const b of fiction) {
+      if (merged.length >= 10) break;
+      if (!merged.some((m) => m.title === b.title && m.author === b.author)) {
+        merged.push(b);
+      }
+    }
+  }
+  return merged.slice(0, 10).map((r) => ({
+    title: r.title,
+    author: r.author,
+    year: r.publicationYear ?? new Date().getFullYear(),
+    format: 'text',
+    rating: r.rating || 4,
+    description: r.description || `A book by ${r.author}.`,
+    genres: r.genres?.length ? r.genres : ['fiction'],
+    isBook: true,
+    source: 'local',
+    coverId: r.thumbnail ?? undefined,
+    isbn: undefined,
+  }));
+}
 
 // Context for sharing preloaded data
 const PreloadedDataContext = createContext<{
@@ -44,16 +72,20 @@ export default function RootLayout() {
   const [apiCache] = useState(new Map());
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // TMDB API configuration
-  const TMDB_API_KEY = '8c247ea0b4b56ed2ff7d41c9a833aa77';
-  const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-
   // Preload movies from TMDB
   const preloadMovies = async () => {
     try {
+      const apiKey = getTmdbApiKey();
+      if (!apiKey) {
+        console.warn(
+          '⚠️ TMDB API key not configured. Set EXPO_PUBLIC_TMDB_API_KEY in .env or EAS secrets.'
+        );
+        return;
+      }
+
       console.log('🎬 Preloading popular movies...');
       const response = await fetch(
-        `${TMDB_BASE_URL}/movie/popular?api_key=${TMDB_API_KEY}&language=en-US&page=1`
+        `${TMDB_BASE_URL}/movie/popular?api_key=${apiKey}&language=en-US&page=1`
       );
       
       if (response.ok) {
@@ -112,65 +144,29 @@ export default function RootLayout() {
     }
   };
 
-  // Preload books from Google Books API (with error handling)
+  // Startup preload uses the bundled catalog only — avoids Google Books 429 on launch and keeps API quota for user-driven search (Add / Import).
   const preloadBooks = async () => {
+    const cacheBooks = (books: any[], label: string) => {
+      if (books.length === 0) return;
+      apiCache.set('preloaded-books', {
+        data: books,
+        timestamp: Date.now(),
+      });
+      console.log(`✅ Preloaded ${books.length} books (${label})`);
+    };
+
     try {
-      console.log('📚 Preloading popular books from Google Books...');
-      
-      // Add timeout to prevent hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      const response = await fetch(
-        'https://www.googleapis.com/books/v1/volumes?q=fantasy+fiction&maxResults=10&orderBy=relevance',
-        { 
-          signal: controller.signal,
-          headers: {
-            'Accept': 'application/json',
-          }
-        }
+      console.log(
+        '📚 Preloading books from local catalog (Google Books is not used at startup — preserves quota).'
       );
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        const data = await response.json();
-        const books = (data.items?.slice(0, 10) || []).map((item: any) => {
-          const volumeInfo = item.volumeInfo;
-          const author = volumeInfo.authors?.[0] || 'Unknown Author';
-          const year = volumeInfo.publishedDate ? new Date(volumeInfo.publishedDate).getFullYear() : 2000;
-          const description = volumeInfo.description || `A fantasy book by ${author} (${year}).`;
-          
-          return {
-            title: volumeInfo.title || 'Unknown Book',
-            author: author,
-            year: year,
-            format: "text",
-            rating: volumeInfo.averageRating || 4,
-            description: description,
-            genres: ['fantasy'],
-            isBook: true,
-            source: 'googlebooks',
-            coverId: volumeInfo.imageLinks?.thumbnail,
-            isbn: volumeInfo.industryIdentifiers?.[0]?.identifier
-          };
-        });
-        
-        // Cache the results
-        apiCache.set('preloaded-books', { 
-          data: books, 
-          timestamp: Date.now() 
-        });
-        
-        console.log(`✅ Preloaded ${books.length} books from Google Books`);
-      } else {
-        console.warn(`⚠️ Google Books API response not ok: ${response.status} ${response.statusText}`);
-        // Don't fail the app - just skip preloading
-      }
+      cacheBooks(await buildPreloadedBooksFromLocalCatalog(), 'local catalog');
     } catch (error) {
       console.error('❌ Error preloading books:', error);
-      // Don't throw - just log the error and continue
-      console.log('📚 Continuing without preloaded books...');
+      try {
+        cacheBooks(await buildPreloadedBooksFromLocalCatalog(), 'local catalog after error');
+      } catch {
+        console.log('📚 Continuing without preloaded books...');
+      }
     }
   };
 
@@ -231,29 +227,27 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <SubscriptionProvider>
-        <DataStoreProvider>
-          <PreloadedDataContext.Provider value={{
-            apiCache,
-            getPreloadedMovies,
-            getPreloadedBooks
-          }}>
-            <OnboardingProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-              <StatusBar style="auto" />
-              
-              {/* Onboarding Modal */}
-              <OnboardingWrapper />
-            </GestureHandlerRootView>
-            </OnboardingProvider>
-          </PreloadedDataContext.Provider>
-        </DataStoreProvider>
-      </SubscriptionProvider>
-    </AuthProvider>
+    <SubscriptionProvider>
+      <DataStoreProvider>
+        <PreloadedDataContext.Provider value={{
+          apiCache,
+          getPreloadedMovies,
+          getPreloadedBooks
+        }}>
+          <OnboardingProvider>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+            <StatusBar style="auto" />
+            
+            {/* Onboarding Modal */}
+            <OnboardingWrapper />
+          </GestureHandlerRootView>
+          </OnboardingProvider>
+        </PreloadedDataContext.Provider>
+      </DataStoreProvider>
+    </SubscriptionProvider>
   );
 }

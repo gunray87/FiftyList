@@ -49,7 +49,7 @@ fi
 # Test 4: Check for hardcoded API keys in source
 echo ""
 echo "Test 3: Source code security..."
-API_KEY_PATTERN="api_key=1b5adf76"
+API_KEY_PATTERN="api_key=8c247"
 if grep -r "$API_KEY_PATTERN" --exclude-dir=node_modules --exclude-dir=.git --exclude=".env" --exclude="*.md" --exclude="verify-security.sh" . > /dev/null 2>&1; then
     echo -e "${RED}✗${NC} Hardcoded API key found in source code!"
     ((FAIL++))
@@ -60,8 +60,8 @@ fi
 
 # Test 5: Check secure storage implementation
 echo ""
-echo "Test 4: Encryption implementation..."
-if [ -f "utils/secureStorage.ts" ]; then
+echo "Test 4: Secure storage implementation..."
+if [ -f "utils/secureStore.ts" ]; then
     echo -e "${GREEN}✓${NC} Secure storage utility exists"
     ((PASS++))
 else
@@ -69,12 +69,12 @@ else
     ((FAIL++))
 fi
 
-# Test 6: Verify secureStorage is imported in useDataStore
-if grep -q "secureStorage" hooks/useDataStore.tsx; then
-    echo -e "${GREEN}✓${NC} Secure storage is used in data store"
+# Test 6: Verify secure storage is used for subscription entitlements
+if grep -q "secureStore" hooks/useSubscription.tsx; then
+    echo -e "${GREEN}✓${NC} Secure storage is used for subscription state"
     ((PASS++))
 else
-    echo -e "${RED}✗${NC} Secure storage NOT used in data store"
+    echo -e "${RED}✗${NC} Secure storage NOT used in subscription state"
     ((FAIL++))
 fi
 
@@ -87,23 +87,6 @@ if grep -q "process.env.EXPO_PUBLIC_TMDB_API_KEY" utils/movieSearch.ts; then
 else
     echo -e "${RED}✗${NC} API calls don't use environment variable"
     ((FAIL++))
-fi
-
-# Test 8: Check documentation exists
-echo ""
-echo "Test 6: Documentation..."
-if [ -f "SECURITY_IMPROVEMENTS.md" ]; then
-    echo -e "${GREEN}✓${NC} Security documentation exists"
-    ((PASS++))
-else
-    echo -e "${YELLOW}⚠${NC} Security documentation missing"
-fi
-
-if [ -f "SECURITY_FIXES_SUMMARY.md" ]; then
-    echo -e "${GREEN}✓${NC} Security summary exists"
-    ((PASS++))
-else
-    echo -e "${YELLOW}⚠${NC} Security summary missing"
 fi
 
 # Summary

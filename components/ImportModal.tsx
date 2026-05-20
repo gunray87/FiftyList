@@ -12,8 +12,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { X, Upload, FileText, CircleCheck as CheckCircle, CircleAlert as AlertCircle } from 'lucide-react-native';
+import { X, Upload, FileText, CircleCheck as CheckCircle, CalendarDays, BookOpen, Sparkles } from 'lucide-react-native';
 import { Book, Movie } from '@/types';
+import { useSubscription } from '@/hooks/useSubscription';
 
 interface ImportModalProps {
   visible: boolean;
@@ -35,7 +36,91 @@ interface ParsedItem {
   confidence: number;
 }
 
+/**
+ * Strip duplicated ordinal prefixes from imported rows while preserving real title numbers.
+ * Examples:
+ * - "1. 12 The Mission Song" -> "The Mission Song"
+ * - "03) 7. Dune" -> "Dune"
+ * Keeps genuine numeric titles like "1984" or "12 Angry Men".
+ */
+function normalizeImportedLine(rawLine: string): string {
+  let line = rawLine.trim();
+  if (!line) return line;
+
+  const original = line;
+
+  // Remove stacked list ordinals at the start, but stop if the remaining text looks like a real numeric title.
+  for (let i = 0; i < 3; i += 1) {
+    const match = line.match(/^(\d{1,3})(?:[\]\).:-]|\s)+(.*)$/);
+    if (!match) break;
+
+    const rest = match[2].trim();
+    if (!rest) break;
+
+    // Preserve well-known numeric-title shapes.
+    if (/^(1984|2001\b|11\/22\/63\b|12 Angry Men\b)/i.test(rest)) {
+      break;
+    }
+
+    // If the next token starts with letters, this prefix was almost certainly list numbering.
+    if (/^[A-Za-z"'([{]/.test(rest)) {
+      line = rest;
+      continue;
+    }
+
+    // If another ordinal follows, keep stripping.
+    if (/^\d{1,3}(?:[\]\).:-]|\s)+/.test(rest)) {
+      line = rest;
+      continue;
+    }
+
+    break;
+  }
+
+  // Handle rows like "53 The Hobbit" where the remaining text is clearly title-first prose.
+  const singleOrdinal = line.match(/^(\d{1,3})\s+([A-Z"'(][A-Za-z].*)$/);
+  if (singleOrdinal) {
+    const candidate = singleOrdinal[2].trim();
+    if (!/^(1984|2001\b|11\/22\/63\b|12 Angry Men\b)/i.test(candidate)) {
+      line = candidate;
+    }
+  }
+
+  return line || original;
+}
+
+/** Merge rows that point at the same work in the same list (title + author + type + list). */
+function dedupeKeyForParsedItem(item: ParsedItem): string {
+  const t = item.title.toLowerCase().replace(/\s+/g, ' ').trim();
+  const a = item.author.toLowerCase().replace(/\s+/g, ' ').trim();
+  return `${item.isBook ? 'b' : 'm'}|${t}|${a}|${item.category}`;
+}
+
+function dedupeParsedItems(items: ParsedItem[]): { items: ParsedItem[]; removed: number } {
+  const out: ParsedItem[] = [];
+  const keyToIndex = new Map<string, number>();
+  let removed = 0;
+  for (const item of items) {
+    const key = dedupeKeyForParsedItem(item);
+    if (!keyToIndex.has(key)) {
+      keyToIndex.set(key, out.length);
+      out.push(item);
+    } else {
+      const idx = keyToIndex.get(key)!;
+      removed += 1;
+      if (item.confidence > out[idx].confidence) {
+        out[idx] = item;
+      }
+    }
+  }
+  return { items: out, removed };
+}
+
+const LLM_PROXY_BASE_URL = process.env.EXPO_PUBLIC_LLM_PROXY_BASE_URL;
+const ENABLE_LLM_ASSIST = process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST === 'true';
+
 export default function ImportModal({ visible, onClose, onImport, isDark = false }: ImportModalProps) {
+  const { features } = useSubscription();
   const [importText, setImportText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
@@ -44,6 +129,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [selectedMedium, setSelectedMedium] = useState<string>('default');
   const [showMediumPicker, setShowMediumPicker] = useState(false);
+  const [llmStatusMessage, setLlmStatusMessage] = useState<string | null>(null);
 
   // Medium options for books and movies
   const bookMediums = [
@@ -79,6 +165,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
     setShowYearPicker(false);
     setSelectedMedium('default');
     setShowMediumPicker(false);
+    setLlmStatusMessage(null);
   };
 
   const handleClose = () => {
@@ -88,7 +175,10 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
 
   // Intelligent text parsing function
   const parseImportText = (text: string): ParsedItem[] => {
-    const lines = text.split('\n').filter(line => line.trim().length > 0);
+    const lines = text
+      .split('\n')
+      .map((line) => normalizeImportedLine(line))
+      .filter(line => line.trim().length > 0);
     const items: ParsedItem[] = [];
 
     // Keywords to identify categories
@@ -291,18 +381,130 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
     return items;
   };
 
-  const handleParseText = () => {
+  const scanAndCleanImportText = async (
+    text: string
+  ): Promise<{
+    text: string;
+    llm: { duplicatesRemoved: number; warnings: string[]; remainingActions?: number } | null;
+  }> => {
+    const llmScanEnabled = features.canUseLLM && ENABLE_LLM_ASSIST && Boolean(LLM_PROXY_BASE_URL);
+    if (!llmScanEnabled || !LLM_PROXY_BASE_URL) {
+      return { text, llm: null };
+    }
+
+    try {
+      const response = await fetch(`${LLM_PROXY_BASE_URL}/llm/import-clean`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Subscription-Tier': 'premium',
+          'X-App-Feature': 'import_clean',
+        },
+        body: JSON.stringify({
+          rawText: text,
+          maxItems: 300,
+          mediaTypes: ['book', 'movie'],
+        }),
+      });
+
+      if (!response.ok) {
+        try {
+          const err = (await response.json()) as { message?: string; error?: string };
+          const msg = err?.message || err?.error;
+          if (response.status === 403) {
+            setLlmStatusMessage('AI clean requires an active premium subscription. Using your original text.');
+          } else if (response.status === 429) {
+            setLlmStatusMessage('AI import limit reached. Using your original text for this import.');
+          } else if (response.status === 503) {
+            setLlmStatusMessage('AI is not available (check the LLM proxy and Workers AI binding). Using your original text.');
+          } else {
+            setLlmStatusMessage(msg || 'AI scan skipped. Using your original text.');
+          }
+        } catch {
+          setLlmStatusMessage('AI scan skipped. Using your original text.');
+        }
+        return { text, llm: null };
+      }
+
+      const payload = (await response.json()) as {
+        cleaned_text?: string;
+        duplicates_removed?: number;
+        warnings?: string[];
+        remaining_actions?: number;
+      };
+      const cleanedText =
+        typeof payload?.cleaned_text === 'string' && payload.cleaned_text.trim().length > 0
+          ? payload.cleaned_text
+          : text;
+
+      const dup =
+        typeof payload?.duplicates_removed === 'number' && payload.duplicates_removed >= 0
+          ? Math.floor(payload.duplicates_removed)
+          : 0;
+      const warnings = Array.isArray(payload?.warnings) ? payload.warnings.filter((w) => typeof w === 'string') : [];
+      const remaining =
+        typeof payload?.remaining_actions === 'number' ? payload.remaining_actions : undefined;
+
+      const parts: string[] = ['AI cleaned the import text.'];
+      if (dup > 0) {
+        parts.push(`Removed ${dup} duplicate entr${dup === 1 ? 'y' : 'ies'} in the source.`);
+      }
+      if (remaining !== undefined) {
+        parts.push(`Remaining AI actions: ${remaining}.`);
+      }
+      if (warnings.length) {
+        parts.push(warnings.join(' '));
+      }
+      setLlmStatusMessage(parts.join(' '));
+
+      if (cleanedText !== text) {
+        setImportText(cleanedText);
+      }
+
+      return {
+        text: cleanedText,
+        llm: { duplicatesRemoved: dup, warnings, remainingActions: remaining },
+      };
+    } catch {
+      setLlmStatusMessage('AI scan failed. Using your original text.');
+      return { text, llm: null };
+    }
+  };
+
+  const handleParseText = async () => {
     if (!importText.trim()) {
       Alert.alert('No Text', 'Please paste some text to import.');
       return;
     }
 
     setIsProcessing(true);
+    setLlmStatusMessage(null);
     
-    // Simulate processing time for better UX
-    setTimeout(() => {
-      const parsed = parseImportText(importText);
-      setParsedItems(parsed);
+    // Keep a short delay for loading feedback while parsing/cleaning.
+    setTimeout(async () => {
+      const { text: textToParse, llm } = await scanAndCleanImportText(importText);
+      const parsed = parseImportText(textToParse);
+      const { items: uniqueItems, removed: localDupesRemoved } = dedupeParsedItems(parsed);
+      if (llm) {
+        setLlmStatusMessage((prev) => {
+          const base = prev || 'AI cleaned the import text.';
+          if (localDupesRemoved > 0) {
+            return `${base} Merged ${localDupesRemoved} duplicate preview row${localDupesRemoved === 1 ? '' : 's'}.`;
+          }
+          return base;
+        });
+      } else if (localDupesRemoved > 0) {
+        setLlmStatusMessage((prev) => {
+          const line = `Merged ${localDupesRemoved} duplicate preview row${
+            localDupesRemoved === 1 ? '' : 's'
+          } (same title, author, and list).`;
+          if (prev && prev.trim().length > 0) {
+            return `${prev} ${line}`;
+          }
+          return line;
+        });
+      }
+      setParsedItems(uniqueItems);
       setShowPreview(true);
       setIsProcessing(false);
     }, 1000);
@@ -475,6 +677,15 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
                 Paste text from Apple Notes, exported lists, or any formatted text containing your books and movies. 
                 The app will intelligently parse titles, authors, ratings, and categories.
               </Text>
+                {features.canUseLLM && ENABLE_LLM_ASSIST && (
+                <View style={styles.premiumScanRow}>
+                  <Sparkles size={14} color="#2563EB" />
+                  <Text style={[styles.instructionsText, styles.premiumScanText]}>
+                    Premium: AI normalizes the text, removes duplicate numbering, drops junk, and removes duplicate works before
+                    import. The preview also merges any duplicate rows the parser still picks up.
+                  </Text>
+                </View>
+              )}
               
               <View style={styles.formatExamples}>
                 <Text style={[styles.exampleTitle, isDark && styles.darkText]}>Supported formats:</Text>
@@ -511,9 +722,7 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
                   style={[styles.yearPickerButton, isDark && styles.darkYearPickerButton]}
                   onPress={() => setShowYearPicker(!showYearPicker)}
                 >
-                  <Text style={[styles.yearPickerButtonText, isDark && styles.darkText]}>
-                    📅
-                  </Text>
+                  <CalendarDays size={18} color={isDark ? '#D1D5DB' : '#374151'} />
                 </TouchableOpacity>
               </View>
               
@@ -634,11 +843,14 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
                   style={[styles.mediumPickerButton, isDark && styles.darkMediumPickerButton]}
                   onPress={() => setShowMediumPicker(!showMediumPicker)}
                 >
-                  <Text style={[styles.mediumPickerButtonText, isDark && styles.darkText]}>
-                    {selectedMedium === 'default' ? '📚 Default' : 
-                     bookMediums.find(m => m.value === selectedMedium)?.label || 
-                     movieMediums.find(m => m.value === selectedMedium)?.label || '📚 Default'}
-                  </Text>
+                  <View style={styles.mediumPickerButtonContent}>
+                    <BookOpen size={16} color={isDark ? '#D1D5DB' : '#374151'} />
+                    <Text style={[styles.mediumPickerButtonText, isDark && styles.darkText]}>
+                      {selectedMedium === 'default' ? 'Default' : 
+                       bookMediums.find(m => m.value === selectedMedium)?.label || 
+                       movieMediums.find(m => m.value === selectedMedium)?.label || 'Default'}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               </View>
               
@@ -736,9 +948,14 @@ export default function ImportModal({ visible, onClose, onImport, isDark = false
                   <Upload size={20} color="#FFFFFF" />
                 )}
                 <Text style={styles.parseButtonText}>
-                  {isProcessing ? 'Processing...' : 'Parse & Preview'}
+                  {isProcessing ? 'Scanning & Processing...' : 'Parse & Preview'}
                 </Text>
               </TouchableOpacity>
+              {llmStatusMessage && (
+                <Text style={[styles.scanStatusText, isDark && styles.darkSecondaryText]}>
+                  {llmStatusMessage}
+                </Text>
+              )}
             </View>
           </ScrollView>
         ) : (
@@ -830,6 +1047,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  premiumScanText: {
+    color: '#2563EB',
+    fontFamily: 'Inter-Medium',
+    textAlign: 'left',
+  },
+  premiumScanRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'stretch',
+  },
   darkSecondaryText: {
     color: '#D1D5DB',
   },
@@ -880,6 +1109,13 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     paddingTop: 8,
+  },
+  scanStatusText: {
+    marginTop: 10,
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#6B7280',
+    textAlign: 'center',
   },
   parseButton: {
     flexDirection: 'row',
@@ -1230,6 +1466,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#374151',
+  },
+  mediumPickerButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   mediumPickerContainer: {
     marginTop: 8,

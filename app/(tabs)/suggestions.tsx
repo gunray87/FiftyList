@@ -1,16 +1,67 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Text, TouchableOpacity, ScrollView, Platform, Share, Alert, Animated, TextInput } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  Text,
+  TouchableOpacity,
+  Pressable,
+  ScrollView,
+  Platform,
+  Share,
+  Alert,
+  Animated,
+  TextInput,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Sparkles, BookOpen, Film, Filter, SlidersHorizontal, Star, TrendingUp, Heart, RefreshCw, Plus, Clock, Check, Lightbulb, ThumbsUp, ThumbsDown, X } from 'lucide-react-native';
+import { Sparkles, BookOpen, Film, SlidersHorizontal, Star, TrendingUp, Heart, RefreshCw, Plus, Clock, Check, Lightbulb, X } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDataStore } from '@/hooks/useDataStore';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { useUserInterests } from '@/hooks/useUserInterests';
+import { useSubscription } from '@/hooks/useSubscription';
 import { usePreloadedData } from '@/app/_layout';
+import { getTmdbApiKey, TMDB_BASE_URL } from '@/utils/tmdbConfig';
 import Header from '@/components/Header';
 import AddEditModal from '@/components/AddEditModal';
 
 import CustomAlert from '@/components/CustomAlert';
+
+import { COMPREHENSIVE_BOOK_DATA } from '@/data/comprehensiveBookCatalog';
+import {
+  extractMoodSignals,
+  moodSignalsAreActionable,
+  orderLovedHighlightsForRefine,
+  scoreRowAgainstMood,
+  boostScoreWithLlmMoodIntent,
+  type MoodSignals,
+} from '@/utils/suggestionMoodSignals';
+import { fetchMoodIntentFromProxy, type LlmMoodIntent } from '@/utils/llmMoodIntent';
+import {
+  buildTasteProfileSnapshot,
+  shouldIncludeFormatSuggestion,
+} from '@/utils/tasteProfileSummary';
+import { fetchTasteProfileNarrative } from '@/utils/llmTasteProfile';
+import {
+  buildListTasteReason,
+  buildListTasteSignals,
+  listTasteMatchScore,
+  type ListTasteSignals,
+} from '@/utils/listTasteSignals';
+import { friendlyLlmErrorMessage } from '@/utils/llmProviderErrors';
+import { bookGenreToMovieCatalogGenre, userHasMovieListActivity } from '@/utils/mediaCatalogGenres';
+import {
+  SUGGESTION_CAVEAT_MAX_CHARS,
+  SUGGESTION_EXPLANATION_MAX_CHARS,
+  trimSuggestionCopy,
+} from '@/utils/suggestionCopyLimits';
+import {
+  finalizeTasteNarrative,
+  TASTE_NARRATIVE_REFINE_MAX_CHARS,
+  mergeFilmIntoTasteNarrative,
+} from '@/utils/tasteNarrativeFormat';
+
+export { COMPREHENSIVE_BOOK_DATA };
 
 // NLP Content Analysis System
 interface NLPContentAnalysis {
@@ -96,6 +147,8 @@ interface Suggestion {
   mood?: string;
   awards?: string[];
   weeksOnList?: number;
+  llmCaveat?: string;
+  llmFormatSuggestion?: string;
   // NLP Analysis fields
   nlpAnalysis?: NLPContentAnalysis;
   // Semantic Similarity fields
@@ -110,32 +163,259 @@ type FilterOption = 'all' | 'books' | 'movies' | 'short' | 'medium' | 'long' | '
 // Granular rating types
 type GranularRating = 'loved' | 'liked' | 'meh' | 'disliked' | null;
 
+const MAX_CANDIDATE_SUGGESTIONS = 240;
+const MAX_RENDERED_SUGGESTIONS = 80;
+/** How many cards get LLM-written `reason` copy per suggestions refresh. */
+const LLM_REFINE_TOP_N = 6;
+
+/** Template / heuristic reasons that should be replaced by LLM (or local polish fallback). */
+function reasonNeedsLlmPolish(reason: string): boolean {
+  const r = (reason || '').trim();
+  if (!r) return true;
+  return (
+    /^Semantically similar to/i.test(r) ||
+    /^Because you enjoy /i.test(r) ||
+    /^Highly rated pick from/i.test(r) ||
+    /^Popular in /i.test(r) ||
+    /^Perfect \w+ reading/i.test(r) ||
+    /^Award-winning literary/i.test(r) ||
+    /^Predicted /i.test(r) ||
+    /^Local recommendation/i.test(r) ||
+    /^Recommended for you$/i.test(r)
+  );
+}
+
+function pickCandidatesForLlmRefine(candidates: Suggestion[], limit: number): Suggestion[] {
+  const sorted = [...candidates].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+  const books = sorted.filter((s) => s.isBook);
+  const movies = sorted.filter((s) => !s.isBook);
+  const perSide = Math.max(1, Math.floor(limit / 2));
+  const picked = new Map<string, Suggestion>();
+
+  const tryPick = (pool: Suggestion[]) => {
+    for (const s of pool) {
+      if (picked.size >= limit) break;
+      if (s.category === 'semantic' || reasonNeedsLlmPolish(s.reason)) {
+        picked.set(s.id, s);
+      }
+    }
+  };
+  tryPick(books.slice(0, perSide + 2));
+  tryPick(movies.slice(0, perSide + 2));
+  for (const s of [...books, ...movies, ...sorted]) {
+    if (picked.size >= limit) break;
+    if (!picked.has(s.id)) picked.set(s.id, s);
+  }
+  return [...picked.values()].slice(0, limit);
+}
+
+function polishReasonIfStillGeneric(
+  s: Suggestion,
+  listSignals: ListTasteSignals,
+  refine?: { refinePhrase?: string; refineGenreSlugs?: string[] }
+): Suggestion {
+  const semantic = s.reason.match(/^Semantically similar to "(.+)"$/);
+  if (semantic) {
+    const ref = semantic[1];
+    return {
+      ...s,
+      reason: `If "${ref}" clicked for you, this pick shares similar themes and tone.`,
+    };
+  }
+  return {
+    ...s,
+    reason: buildListTasteReason(
+      { title: s.title, author: s.author, genres: s.genres || [] },
+      listSignals,
+      refine
+    ),
+  };
+}
+const TASTE_PROFILE_CACHE_KEY = 'fiftylist_taste_profile_cache_v7';
+const TASTE_PROFILE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Fixed scroll viewport for taste tab (~6 lines); panel height does not grow with text. */
+const TASTE_SNAPSHOT_SCROLL_HEIGHT = 132;
+
+type LlmAssistPanelTab = 'refine-books' | 'refine-movies' | 'taste';
+const GOOGLE_BOOKS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY;
+const NYT_API_KEY = process.env.EXPO_PUBLIC_NYT_API_KEY;
+const LLM_PROXY_BASE_URL = process.env.EXPO_PUBLIC_LLM_PROXY_BASE_URL;
+const ENABLE_LLM_ASSIST = process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST === 'true';
+const PREMIUM_SUGGESTION_CONTEXT_BOOKS_KEY = 'premium_suggestion_llm_context_books';
+const PREMIUM_SUGGESTION_CONTEXT_MOVIES_KEY = 'premium_suggestion_llm_context_movies';
+/** Legacy single refine field — migrated to books on first load. */
+const PREMIUM_SUGGESTION_CONTEXT_LEGACY_KEY = 'premium_suggestion_llm_context';
+
+const SAND_BACKGROUND = '#F0E8D8';
+const AMBER_PRIMARY = '#D97706';
+const AMBER_DARK = '#B45309';
+const MOVIE_WARM = '#92400E';
+const BORDER_WARM = 'rgba(180, 83, 9, 0.2)';
+
+// LLM proxy request/response models for premium suggestions refine (copy polish on mood-filtered picks).
+type SuggestionsRefineMode = 'rerank';
+type SuggestionsMediaType = 'book' | 'movie' | 'mixed';
+
+interface SuggestionsRefineCandidate {
+  id: string;
+  title: string;
+  author: string;
+  year: number;
+  genres: string[];
+  rating: number;
+  estimatedLength: string;
+  confidence: number;
+  isBook: boolean;
+  similarToTitle?: string;
+}
+
+interface SuggestionsRefineRequest {
+  mediaType: SuggestionsMediaType;
+  mode: SuggestionsRefineMode;
+  maxResults: number;
+  richTopThree?: boolean;
+  userFeatures: {
+    preferredGenres: string[];
+    avoidGenres: string[];
+    lengthPreference?: 'short' | 'medium' | 'long' | 'any';
+    minRating?: number;
+    recentAuthors: string[];
+    additionalContext?: string;
+  };
+  sessionSignals: {
+    activeFilter: FilterOption;
+    sortBy: SortOption;
+    recentInteractions: Array<{ type: string; itemId: string }>;
+  };
+  candidates: SuggestionsRefineCandidate[];
+  userSummary?: {
+    topRated: Array<{
+      title: string;
+      author: string;
+      media: string;
+      rating: number;
+      format: string | null;
+      lengthBucket: string;
+    }>;
+    aggregates: Record<string, unknown>;
+    /** LLM taste snapshot prose — ties card copy to the Taste snapshot tab */
+    tasteNarrative?: string;
+  };
+  lovedHighlights?: Array<{ title: string; author: string; media: string }>;
+  refineContext?: {
+    phrase: string;
+    primaryTitleAnchors: string[];
+    secondaryAuthorAnchors: string[];
+    primaryGenreSlugs: string[];
+  };
+  includeFormatSuggestions?: boolean;
+}
+
+interface SuggestionsRefineResponse {
+  items: Array<{
+    id: string;
+    score: number;
+    reason_short: string;
+    explanation?: string;
+    caveat?: string;
+    format_suggestion?: string;
+  }>;
+  remaining_actions?: number;
+  reset_at?: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
+type RefineLlmResult =
+  | { ok: true; data: SuggestionsRefineResponse }
+  | { ok: false; userMessage: string };
+
+async function refineSuggestionsWithLLM(
+  payload: SuggestionsRefineRequest
+): Promise<RefineLlmResult> {
+  if (!LLM_PROXY_BASE_URL) {
+    return { ok: false, userMessage: 'LLM proxy URL is not configured.' };
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${LLM_PROXY_BASE_URL}/llm/suggestions-refine`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Subscription-Tier': 'premium',
+        'X-App-Feature': 'suggestions_refine',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      let userMessage = `Proxy error (${response.status})`;
+      try {
+        const errBody = (await response.json()) as {
+          message?: string;
+          details?: string;
+          error?: string;
+          code?: string;
+        };
+        if (typeof errBody.message === 'string' && errBody.message.trim()) {
+          userMessage = errBody.message.trim();
+        } else if (errBody.error === 'premium_required') {
+          userMessage = 'Premium required for AI copy.';
+        }
+        console.warn(
+          'suggestions-refine failed',
+          response.status,
+          errBody.code ?? errBody.error,
+          errBody.details ?? response.statusText
+        );
+      } catch {
+        console.warn('suggestions-refine failed', response.status);
+      }
+      return { ok: false, userMessage: friendlyLlmErrorMessage(userMessage) };
+    }
+    const data = (await response.json()) as SuggestionsRefineResponse;
+    if (!data?.items?.length) {
+      return { ok: false, userMessage: 'Proxy returned no suggestion copy.' };
+    }
+    return { ok: true, data };
+  } catch (e) {
+    const aborted = e instanceof Error && e.name === 'AbortError';
+    console.warn('suggestions-refine error', e);
+    return {
+      ok: false,
+      userMessage: aborted ? 'AI request timed out — try again.' : 'Could not reach the LLM proxy.',
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Rating configuration
 const RATING_CONFIG = {
   loved: {
     label: 'Loved',
-    icon: '❤️',
+    icon: 'heart',
     color: '#EF4444', // Red
     weight: 2.0, // Highest positive weight
     feedback: 'Excellent! This will help find similar content you\'ll love.'
   },
   liked: {
     label: 'Liked',
-    icon: '👍',
+    icon: 'thumbs-up',
     color: '#10B981', // Green
     weight: 1.0, // Standard positive weight
     feedback: 'Great! This helps refine your preferences.'
   },
   meh: {
     label: 'Meh',
-    icon: '😐',
+    icon: 'minus',
     color: '#F59E0B', // Amber
     weight: 0.0, // Neutral weight
     feedback: 'Noted. This helps avoid similar content.'
   },
   disliked: {
     label: 'Disliked',
-    icon: '👎',
+    icon: 'thumbs-down',
     color: '#6B7280', // Gray
     weight: -1.0, // Negative weight
     feedback: 'Got it. We\'ll avoid similar content.'
@@ -189,1362 +469,7 @@ const SEMANTIC_CONFIG = {
   }
 };
 
-// Comprehensive hard-coded dataset for zero API usage
-export const COMPREHENSIVE_BOOK_DATA = [
-  // Adventure & Outdoor Books
-  { title: "Into Thin Air", author: "Jon Krakauer", year: 1997, description: "A firsthand account of the 1996 Mount Everest disaster.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.5 },
-  { title: "The Emerald Mile", author: "Kevin Fedarko", year: 2013, description: "The epic story of the fastest ride through the Grand Canyon.", genres: ["adventure", "non-fiction", "history"], rating: 4.6 },
-  { title: "Endurance", author: "Alfred Lansing", year: 1959, description: "Shackleton's legendary Antarctic expedition.", genres: ["adventure", "non-fiction", "history"], rating: 4.7 },
-  { title: "The River of Doubt", author: "Candice Millard", year: 2005, description: "Theodore Roosevelt's journey down an uncharted tributary of the Amazon.", genres: ["adventure", "non-fiction", "history"], rating: 4.4 },
-  { title: "Alone on the Wall", author: "Alex Honnold", year: 2015, description: "Free solo climbing adventures and philosophy.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.3 },
-  { title: "The Impossible Climb", author: "Mark Synnott", year: 2019, description: "Alex Honnold, El Capitan, and the climbing life.", genres: ["adventure", "non-fiction", "biography"], rating: 4.2 },
-  { title: "Conquistadors of the Useless", author: "Lionel Terray", year: 1963, description: "Classic mountaineering memoir from a French alpinist.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.1 },
-  { title: "The Wager", author: "David Grann", year: 2023, description: "A tale of shipwreck, mutiny and murder.", genres: ["adventure", "non-fiction", "history"], rating: 4.5 },
-  { title: "K2: Life and Death on the World's Most Dangerous Mountain", author: "Ed Viesturs", year: 2009, description: "The deadly history of K2 climbing.", genres: ["adventure", "non-fiction", "history"], rating: 4.3 },
-  { title: "The Third Pole", author: "Mark Synnott", year: 2021, description: "Mystery, obsession, and death on Mount Everest.", genres: ["adventure", "non-fiction", "history"], rating: 4.0 },
-  { title: "Touching the Void", author: "Joe Simpson", year: 1988, description: "A mountaineering survival story.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.4 },
-  { title: "The Climb", author: "Anatoli Boukreev", year: 1997, description: "Tragic ambitions on Everest.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.2 },
-  { title: "Annapurna", author: "Maurice Herzog", year: 1952, description: "The first ascent of an 8,000-meter peak.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.1 },
-  { title: "The White Spider", author: "Heinrich Harrer", year: 1959, description: "The classic account of the first ascent of the Eiger.", genres: ["adventure", "non-fiction", "history"], rating: 4.3 },
-  { title: "No Shortcuts to the Top", author: "Ed Viesturs", year: 2006, description: "Climbing the world's 14 highest peaks.", genres: ["adventure", "non-fiction", "memoir"], rating: 4.4 },
-  
-  // Fantasy Books
-  { title: "The Name of the Wind", author: "Patrick Rothfuss", year: 2007, description: "The first book in the Kingkiller Chronicle series.", genres: ["fantasy", "fiction"], rating: 4.5 },
-  { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien", year: 1954, description: "The first volume of The Lord of the Rings.", genres: ["fantasy", "fiction"], rating: 4.6 },
-  { title: "The Two Towers", author: "J.R.R. Tolkien", year: 1954, description: "The second volume of The Lord of the Rings.", genres: ["fantasy", "fiction"], rating: 4.6 },
-  { title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937, description: "Bilbo Baggins' journey with thirteen dwarves.", genres: ["fantasy", "fiction"], rating: 4.5 },
-  { title: "A Darker Shade of Magic", author: "V.E. Schwab", year: 2015, description: "A fantasy novel about parallel Londons.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Song of Achilles", author: "Madeline Miller", year: 2011, description: "A retelling of the Iliad from Patroclus' perspective.", genres: ["fantasy", "fiction", "romance"], rating: 4.4 },
-  { title: "The Way of Kings", author: "Brandon Sanderson", year: 2010, description: "The first book in the Stormlight Archive series.", genres: ["fantasy", "fiction"], rating: 4.6 },
-  { title: "Words of Radiance", author: "Brandon Sanderson", year: 2014, description: "The second book in the Stormlight Archive series.", genres: ["fantasy", "fiction"], rating: 4.7 },
-  { title: "Oathbringer", author: "Brandon Sanderson", year: 2017, description: "The third book in the Stormlight Archive series.", genres: ["fantasy", "fiction"], rating: 4.6 },
-  { title: "The Hero of Ages", author: "Brandon Sanderson", year: 2008, description: "The final book in the Mistborn trilogy.", genres: ["fantasy", "fiction"], rating: 4.5 },
-  { title: "The Final Empire", author: "Brandon Sanderson", year: 2006, description: "The first book in the Mistborn trilogy.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "The Well of Ascension", author: "Brandon Sanderson", year: 2007, description: "The second book in the Mistborn trilogy.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Lightning Thief", author: "Rick Riordan", year: 2005, description: "The first book in the Percy Jackson series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.3 },
-  { title: "The Sea of Monsters", author: "Rick Riordan", year: 2006, description: "The second book in the Percy Jackson series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "The Titan's Curse", author: "Rick Riordan", year: 2007, description: "The third book in the Percy Jackson series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "The Battle of the Labyrinth", author: "Rick Riordan", year: 2008, description: "The fourth book in the Percy Jackson series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.3 },
-  { title: "The Last Olympian", author: "Rick Riordan", year: 2009, description: "The fifth book in the Percy Jackson series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.4 },
-  
-  // Mystery & Crime Books
-  { title: "I'll Be Gone in the Dark", author: "Michelle McNamara", year: 2018, description: "One woman's obsessive search for the Golden State Killer.", genres: ["mystery", "true crime", "non-fiction"], rating: 4.3 },
-  { title: "Killers of the Flower Moon", author: "David Grann", year: 2017, description: "The Osage murders and the birth of the FBI.", genres: ["mystery", "true crime", "non-fiction"], rating: 4.4 },
-  { title: "City on Fire", author: "Don Winslow", year: 2022, description: "A crime novel set in 1980s New York.", genres: ["crime", "fiction"], rating: 4.2 },
-  { title: "The Devil's Star", author: "Jo Nesbo", year: 2003, description: "A Harry Hole detective novel.", genres: ["mystery", "crime", "fiction"], rating: 4.1 },
-  { title: "The Girl with the Dragon Tattoo", author: "Stieg Larsson", year: 2005, description: "The first book in the Millennium series.", genres: ["mystery", "crime", "fiction"], rating: 4.2 },
-  { title: "Gone Girl", author: "Gillian Flynn", year: 2012, description: "A psychological thriller about a missing woman.", genres: ["mystery", "thriller", "fiction"], rating: 4.1 },
-  { title: "The Silent Patient", author: "Alex Michaelides", year: 2019, description: "A psychological thriller about a woman who shoots her husband.", genres: ["mystery", "thriller", "fiction"], rating: 4.0 },
-  { title: "Verity", author: "Colleen Hoover", year: 2021, description: "A psychological thriller about a writer's manuscript.", genres: ["mystery", "thriller", "fiction"], rating: 4.1 },
-  { title: "The Seven Husbands of Evelyn Hugo", author: "Taylor Jenkins Reid", year: 2017, description: "A novel about an aging Hollywood starlet.", genres: ["historical fiction", "romance"], rating: 4.3 },
-  { title: "The Things We Cannot Say", author: "Kelly Rimmer", year: 2019, description: "A dual timeline novel about love and war.", genres: ["historical fiction", "romance"], rating: 4.2 },
-  
-  // Science Fiction Books
-  { title: "The Three Body Problem", author: "Liu Cixin", year: 2008, description: "The first book in the Remembrance of Earth's Past trilogy.", genres: ["science fiction", "fiction"], rating: 4.3 },
-  { title: "The Dark Forest", author: "Liu Cixin", year: 2008, description: "The second book in the Remembrance of Earth's Past trilogy.", genres: ["science fiction", "fiction"], rating: 4.4 },
-  { title: "Death's End", author: "Liu Cixin", year: 2010, description: "The third book in the Remembrance of Earth's Past trilogy.", genres: ["science fiction", "fiction"], rating: 4.5 },
-  { title: "Dune", author: "Frank Herbert", year: 1965, description: "A science fiction masterpiece about desert planet Arrakis.", genres: ["science fiction", "fiction"], rating: 4.6 },
-  { title: "The Martian", author: "Andy Weir", year: 2011, description: "An astronaut stranded on Mars fights to survive.", genres: ["science fiction", "fiction"], rating: 4.4 },
-  { title: "Project Hail Mary", author: "Andy Weir", year: 2021, description: "An astronaut wakes up alone on a spaceship with no memory.", genres: ["science fiction", "fiction"], rating: 4.3 },
-  { title: "Ready Player One", author: "Ernest Cline", year: 2011, description: "A virtual reality treasure hunt in a dystopian future.", genres: ["science fiction", "fiction"], rating: 4.2 },
-  { title: "The Hunger Games", author: "Suzanne Collins", year: 2008, description: "A dystopian novel about a televised battle to the death.", genres: ["science fiction", "young adult", "fiction"], rating: 4.3 },
-  { title: "Catching Fire", author: "Suzanne Collins", year: 2009, description: "The second book in The Hunger Games trilogy.", genres: ["science fiction", "young adult", "fiction"], rating: 4.2 },
-  { title: "Mockingjay", author: "Suzanne Collins", year: 2010, description: "The final book in The Hunger Games trilogy.", genres: ["science fiction", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Ballad of Song Birds and Snakes", author: "Suzanne Collins", year: 2020, description: "A prequel to The Hunger Games series.", genres: ["young adult", "fiction", "dystopian"], rating: 4.0 },
-  
-  // Historical Fiction & Biography
-  { title: "The Personal Librarian", author: "Marie Benedict", year: 2021, description: "The remarkable story of Belle da Costa Greene.", genres: ["historical fiction", "biography"], rating: 4.1 },
-  { title: "The Book Thief", author: "Markus Zusak", year: 2005, description: "A novel set in Nazi Germany narrated by Death.", genres: ["historical fiction", "young adult"], rating: 4.4 },
-  { title: "All the Light We Cannot See", author: "Anthony Doerr", year: 2014, description: "A novel about a blind French girl and a German boy during WWII.", genres: ["historical fiction", "fiction"], rating: 4.3 },
-  { title: "The Nightingale", author: "Kristin Hannah", year: 2015, description: "Two sisters in Nazi-occupied France.", genres: ["historical fiction", "fiction"], rating: 4.2 },
-  { title: "The Tattooist of Auschwitz", author: "Heather Morris", year: 2018, description: "Based on the true story of Lale Sokolov.", genres: ["historical fiction", "biography"], rating: 4.1 },
-  { title: "Educated", author: "Tara Westover", year: 2018, description: "A memoir about growing up in a survivalist family.", genres: ["memoir", "biography", "non-fiction"], rating: 4.5 },
-  { title: "Becoming", author: "Michelle Obama", year: 2018, description: "The memoir of the former First Lady.", genres: ["memoir", "biography", "non-fiction"], rating: 4.4 },
-  { title: "Sapiens", author: "Yuval Noah Harari", year: 2011, description: "A brief history of humankind.", genres: ["history", "non-fiction"], rating: 4.3 },
-  { title: "Atomic Habits", author: "James Clear", year: 2018, description: "An easy and proven way to build good habits.", genres: ["self-help", "non-fiction"], rating: 4.4 },
-  { title: "The Subtle Art of Not Giving a F*ck", author: "Mark Manson", year: 2016, description: "A counterintuitive approach to living a good life.", genres: ["self-help", "non-fiction"], rating: 4.0 },
-  
-  // Contemporary Fiction
-  { title: "The Midnight Library", author: "Matt Haig", year: 2020, description: "A library between life and death.", genres: ["contemporary", "fiction"], rating: 4.1 },
-  { title: "Klara and the Sun", author: "Kazuo Ishiguro", year: 2021, description: "A novel about an artificial friend.", genres: ["contemporary", "fiction"], rating: 4.0 },
-  { title: "The Vanishing Half", author: "Brit Bennett", year: 2020, description: "A novel about twin sisters and identity.", genres: ["contemporary", "fiction"], rating: 4.2 },
-  { title: "Such a Fun Age", author: "Kiley Reid", year: 2019, description: "A novel about race and privilege.", genres: ["contemporary", "fiction"], rating: 4.1 },
-  { title: "Normal People", author: "Sally Rooney", year: 2018, description: "A novel about the relationship between two teenagers.", genres: ["contemporary", "fiction", "romance"], rating: 4.0 },
-  { title: "Conversations with Friends", author: "Sally Rooney", year: 2017, description: "A novel about friendship and love.", genres: ["contemporary", "fiction"], rating: 3.9 },
-  { title: "Beautiful World, Where Are You", author: "Sally Rooney", year: 2021, description: "A novel about love and friendship in the modern world.", genres: ["contemporary", "fiction"], rating: 3.8 },
-  { title: "Tomorrow, and Tomorrow, and Tomorrow", author: "Gabrielle Zevin", year: 2022, description: "A novel about friendship and video games.", genres: ["contemporary", "fiction"], rating: 4.2 },
-  { title: "Lessons in Chemistry", author: "Bonnie Garmus", year: 2022, description: "A novel about a female scientist in the 1960s.", genres: ["contemporary", "fiction"], rating: 4.1 },
-  { title: "Remarkably Bright Creatures", author: "Shelby Van Pelt", year: 2022, description: "A novel about friendship between a widow and an octopus.", genres: ["contemporary", "fiction"], rating: 4.0 },
-  
-  // Award-Winning Books
-  { title: "The Overstory", author: "Richard Powers", year: 2018, description: "A Pulitzer Prize-winning novel about trees and people.", genres: ["literary", "fiction"], rating: 4.2, awards: ["Pulitzer Prize"] },
-  { title: "The Underground Railroad", author: "Colson Whitehead", year: 2016, description: "A Pulitzer Prize-winning novel about slavery.", genres: ["literary", "historical fiction"], rating: 4.3, awards: ["Pulitzer Prize"] },
-  { title: "All the Pretty Horses", author: "Cormac McCarthy", year: 1992, description: "A National Book Award-winning novel.", genres: ["literary", "western", "fiction"], rating: 4.1, awards: ["National Book Award"] },
-  { title: "Beloved", author: "Toni Morrison", year: 1987, description: "A Pulitzer Prize-winning novel about slavery.", genres: ["literary", "historical fiction"], rating: 4.4, awards: ["Pulitzer Prize"] },
-  { title: "The Goldfinch", author: "Donna Tartt", year: 2013, description: "A Pulitzer Prize-winning novel about art and loss.", genres: ["literary", "fiction"], rating: 4.0, awards: ["Pulitzer Prize"] },
-  { title: "A Visit from the Goon Squad", author: "Jennifer Egan", year: 2010, description: "A Pulitzer Prize-winning novel about time and music.", genres: ["literary", "fiction"], rating: 4.1, awards: ["Pulitzer Prize"] },
-  { title: "The Brief Wondrous Life of Oscar Wao", author: "Junot Díaz", year: 2007, description: "A Pulitzer Prize-winning novel about Dominican-American life.", genres: ["literary", "fiction"], rating: 4.2, awards: ["Pulitzer Prize"] },
-  { title: "Middlesex", author: "Jeffrey Eugenides", year: 2002, description: "A Pulitzer Prize-winning novel about gender and identity.", genres: ["literary", "fiction"], rating: 4.3, awards: ["Pulitzer Prize"] },
-  { title: "The Amazing Adventures of Kavalier & Clay", author: "Michael Chabon", year: 2000, description: "A Pulitzer Prize-winning novel about comic books.", genres: ["literary", "historical fiction"], rating: 4.2, awards: ["Pulitzer Prize"] },
-  { title: "Interpreter of Maladies", author: "Jhumpa Lahiri", year: 1999, description: "A Pulitzer Prize-winning short story collection.", genres: ["literary", "short stories"], rating: 4.4, awards: ["Pulitzer Prize"] },
-  
-  // Additional Fantasy Books
-  { title: "The Return of the King", author: "J.R.R. Tolkien", year: 1955, description: "The final volume of The Lord of the Rings.", genres: ["fantasy", "fiction"], rating: 4.7 },
-  { title: "The Silmarillion", author: "J.R.R. Tolkien", year: 1977, description: "The mythology and legends of Middle-earth.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Children of Húrin", author: "J.R.R. Tolkien", year: 2007, description: "A tragic tale from the First Age of Middle-earth.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "Rhythm of War", author: "Brandon Sanderson", year: 2020, description: "The fourth book in the Stormlight Archive series.", genres: ["fantasy", "fiction"], rating: 4.5 },
-  { title: "Dawnshard", author: "Brandon Sanderson", year: 2020, description: "A novella in the Stormlight Archive universe.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Alloy of Law", author: "Brandon Sanderson", year: 2011, description: "A Mistborn novel set in the industrial era.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "Shadows of Self", author: "Brandon Sanderson", year: 2015, description: "A Mistborn novel about law and justice.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Bands of Mourning", author: "Brandon Sanderson", year: 2016, description: "A Mistborn novel about ancient artifacts.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Lost Metal", author: "Brandon Sanderson", year: 2022, description: "The final Mistborn novel in the Wax and Wayne series.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "Elantris", author: "Brandon Sanderson", year: 2005, description: "A standalone fantasy novel about a fallen city.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "Warbreaker", author: "Brandon Sanderson", year: 2009, description: "A standalone fantasy novel about color magic.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Rithmatist", author: "Brandon Sanderson", year: 2013, description: "A young adult fantasy about magical chalk drawings.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Steelheart", author: "Brandon Sanderson", year: 2013, description: "The first book in the Reckoners series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "Firefight", author: "Brandon Sanderson", year: 2015, description: "The second book in the Reckoners series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Calamity", author: "Brandon Sanderson", year: 2016, description: "The final book in the Reckoners series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Wise Man's Fear", author: "Patrick Rothfuss", year: 2011, description: "The second book in the Kingkiller Chronicle series.", genres: ["fantasy", "fiction"], rating: 4.6 },
-  { title: "The Slow Regard of Silent Things", author: "Patrick Rothfuss", year: 2014, description: "A novella about Auri from the Kingkiller Chronicle.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "A Gathering of Shadows", author: "V.E. Schwab", year: 2016, description: "The second book in the Shades of Magic series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "A Conjuring of Light", author: "V.E. Schwab", year: 2017, description: "The final book in the Shades of Magic series.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "Circe", author: "Madeline Miller", year: 2018, description: "A retelling of the Greek myth of Circe.", genres: ["fantasy", "fiction", "mythology"], rating: 4.4 },
-  { title: "The Priory of the Orange Tree", author: "Samantha Shannon", year: 2019, description: "An epic fantasy about dragons and queens.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "A Day of Fallen Night", author: "Samantha Shannon", year: 2023, description: "A prequel to The Priory of the Orange Tree.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Fifth Season", author: "N.K. Jemisin", year: 2015, description: "The first book in the Broken Earth trilogy.", genres: ["fantasy", "science fiction"], rating: 4.4 },
-  { title: "The Obelisk Gate", author: "N.K. Jemisin", year: 2016, description: "The second book in the Broken Earth trilogy.", genres: ["fantasy", "science fiction"], rating: 4.5 },
-  { title: "The Stone Sky", author: "N.K. Jemisin", year: 2017, description: "The final book in the Broken Earth trilogy.", genres: ["fantasy", "science fiction"], rating: 4.6 },
-  { title: "The Hundred Thousand Kingdoms", author: "N.K. Jemisin", year: 2010, description: "The first book in the Inheritance trilogy.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Broken Kingdoms", author: "N.K. Jemisin", year: 2010, description: "The second book in the Inheritance trilogy.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Kingdom of Gods", author: "N.K. Jemisin", year: 2011, description: "The final book in the Inheritance trilogy.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The City We Became", author: "N.K. Jemisin", year: 2020, description: "A fantasy novel about New York City.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "The World We Make", author: "N.K. Jemisin", year: 2022, description: "The sequel to The City We Became.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Lies of Locke Lamora", author: "Scott Lynch", year: 2006, description: "The first book in the Gentlemen Bastards series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "Red Seas Under Red Skies", author: "Scott Lynch", year: 2007, description: "The second book in the Gentlemen Bastards series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Republic of Thieves", author: "Scott Lynch", year: 2013, description: "The third book in the Gentlemen Bastards series.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Thorn of Emberlain", author: "Scott Lynch", year: 2024, description: "The fourth book in the Gentlemen Bastards series.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "The Blade Itself", author: "Joe Abercrombie", year: 2006, description: "The first book in the First Law trilogy.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "Before They Are Hanged", author: "Joe Abercrombie", year: 2007, description: "The second book in the First Law trilogy.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "Last Argument of Kings", author: "Joe Abercrombie", year: 2008, description: "The final book in the First Law trilogy.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "Best Served Cold", author: "Joe Abercrombie", year: 2009, description: "A standalone novel in the First Law world.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Heroes", author: "Joe Abercrombie", year: 2011, description: "A standalone novel about a battle.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "Red Country", author: "Joe Abercrombie", year: 2012, description: "A standalone western fantasy novel.", genres: ["fantasy", "western", "fiction"], rating: 4.1 },
-  { title: "A Little Hatred", author: "Joe Abercrombie", year: 2019, description: "The first book in the Age of Madness trilogy.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Trouble With Peace", author: "Joe Abercrombie", year: 2020, description: "The second book in the Age of Madness trilogy.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Wisdom of Crowds", author: "Joe Abercrombie", year: 2021, description: "The final book in the Age of Madness trilogy.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "The Way of Shadows", author: "Brent Weeks", year: 2008, description: "The first book in the Night Angel trilogy.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "Shadow's Edge", author: "Brent Weeks", year: 2008, description: "The second book in the Night Angel trilogy.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "Beyond the Shadows", author: "Brent Weeks", year: 2008, description: "The final book in the Night Angel trilogy.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Black Prism", author: "Brent Weeks", year: 2010, description: "The first book in the Lightbringer series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Blinding Knife", author: "Brent Weeks", year: 2012, description: "The second book in the Lightbringer series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Broken Eye", author: "Brent Weeks", year: 2014, description: "The third book in the Lightbringer series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Blood Mirror", author: "Brent Weeks", year: 2016, description: "The fourth book in the Lightbringer series.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Burning White", author: "Brent Weeks", year: 2019, description: "The final book in the Lightbringer series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Eye of the World", author: "Robert Jordan", year: 1990, description: "The first book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Great Hunt", author: "Robert Jordan", year: 1990, description: "The second book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "The Dragon Reborn", author: "Robert Jordan", year: 1991, description: "The third book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "The Shadow Rising", author: "Robert Jordan", year: 1992, description: "The fourth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "The Fires of Heaven", author: "Robert Jordan", year: 1993, description: "The fifth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "Lord of Chaos", author: "Robert Jordan", year: 1994, description: "The sixth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "A Crown of Swords", author: "Robert Jordan", year: 1996, description: "The seventh book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Path of Daggers", author: "Robert Jordan", year: 1998, description: "The eighth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "Winter's Heart", author: "Robert Jordan", year: 2000, description: "The ninth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "Crossroads of Twilight", author: "Robert Jordan", year: 2003, description: "The tenth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "Knife of Dreams", author: "Robert Jordan", year: 2005, description: "The eleventh book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.1 },
-  { title: "The Gathering Storm", author: "Robert Jordan & Brandon Sanderson", year: 2009, description: "The twelfth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.3 },
-  { title: "Towers of Midnight", author: "Robert Jordan & Brandon Sanderson", year: 2010, description: "The thirteenth book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.2 },
-  { title: "A Memory of Light", author: "Robert Jordan & Brandon Sanderson", year: 2013, description: "The final book in The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.4 },
-  { title: "New Spring", author: "Robert Jordan", year: 2004, description: "A prequel to The Wheel of Time series.", genres: ["fantasy", "fiction"], rating: 4.0 },
-  { title: "The Red Queen", author: "Victoria Aveyard", year: 2015, description: "The first book in the Red Queen series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Glass Sword", author: "Victoria Aveyard", year: 2016, description: "The second book in the Red Queen series.", genres: ["fantasy", "young adult", "fiction"], rating: 3.9 },
-  { title: "King's Cage", author: "Victoria Aveyard", year: 2017, description: "The third book in the Red Queen series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "War Storm", author: "Victoria Aveyard", year: 2018, description: "The final book in the Red Queen series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "Red Queen", author: "Victoria Aveyard", year: 2015, description: "The first book in the Red Queen series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "The Cruel Prince", author: "Holly Black", year: 2018, description: "The first book in The Folk of the Air series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Wicked King", author: "Holly Black", year: 2019, description: "The second book in The Folk of the Air series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "The Queen of Nothing", author: "Holly Black", year: 2019, description: "The final book in The Folk of the Air series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.3 },
-  { title: "Tithe", author: "Holly Black", year: 2002, description: "The first book in the Modern Faerie Tales series.", genres: ["fantasy", "young adult", "fiction"], rating: 3.9 },
-  { title: "Valiant", author: "Holly Black", year: 2005, description: "The second book in the Modern Faerie Tales series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Ironside", author: "Holly Black", year: 2007, description: "The final book in the Modern Faerie Tales series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Darkest Part of the Forest", author: "Holly Black", year: 2015, description: "A standalone fantasy novel about faeries.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Book of Night", author: "Holly Black", year: 2022, description: "A dark fantasy novel about shadow magic.", genres: ["fantasy", "fiction"], rating: 3.9 },
-  { title: "The Raven Boys", author: "Maggie Stiefvater", year: 2012, description: "The first book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Dream Thieves", author: "Maggie Stiefvater", year: 2013, description: "The second book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "Blue Lily, Lily Blue", author: "Maggie Stiefvater", year: 2014, description: "The third book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Raven King", author: "Maggie Stiefvater", year: 2016, description: "The final book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.3 },
-  { title: "Call Down the Hawk", author: "Maggie Stiefvater", year: 2019, description: "The first book in The Dreamer trilogy.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Mister Impossible", author: "Maggie Stiefvater", year: 2021, description: "The second book in The Dreamer trilogy.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "Greywaren", author: "Maggie Stiefvater", year: 2022, description: "The final book in The Dreamer trilogy.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "Shiver", author: "Maggie Stiefvater", year: 2009, description: "The first book in The Wolves of Mercy Falls series.", genres: ["fantasy", "young adult", "fiction"], rating: 3.9 },
-  { title: "Linger", author: "Maggie Stiefvater", year: 2010, description: "The second book in The Wolves of Mercy Falls series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Forever", author: "Maggie Stiefvater", year: 2011, description: "The final book in The Wolves of Mercy Falls series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Scorpio Races", author: "Maggie Stiefvater", year: 2011, description: "A standalone fantasy novel about water horses.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "All the Crooked Saints", author: "Maggie Stiefvater", year: 2017, description: "A standalone magical realism novel.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "The Call", author: "Peadar Ó Guilín", year: 2016, description: "The first book in The Call duology.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "The Invasion", author: "Peadar Ó Guilín", year: 2018, description: "The final book in The Call duology.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Cruel Prince", author: "Holly Black", year: 2018, description: "The first book in The Folk of the Air series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Wicked King", author: "Holly Black", year: 2019, description: "The second book in The Folk of the Air series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "The Queen of Nothing", author: "Holly Black", year: 2019, description: "The final book in The Folk of the Air series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.3 },
-  { title: "Tithe", author: "Holly Black", year: 2002, description: "The first book in the Modern Faerie Tales series.", genres: ["fantasy", "young adult", "fiction"], rating: 3.9 },
-  { title: "Valiant", author: "Holly Black", year: 2005, description: "The second book in the Modern Faerie Tales series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Ironside", author: "Holly Black", year: 2007, description: "The final book in the Modern Faerie Tales series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Darkest Part of the Forest", author: "Holly Black", year: 2015, description: "A standalone fantasy novel about faeries.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Book of Night", author: "Holly Black", year: 2022, description: "A dark fantasy novel about shadow magic.", genres: ["fantasy", "fiction"], rating: 3.9 },
-  { title: "The Raven Boys", author: "Maggie Stiefvater", year: 2012, description: "The first book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Dream Thieves", author: "Maggie Stiefvater", year: 2013, description: "The second book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "Blue Lily, Lily Blue", author: "Maggie Stiefvater", year: 2014, description: "The third book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Raven King", author: "Maggie Stiefvater", year: 2016, description: "The final book in The Raven Cycle series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.3 },
-  { title: "Call Down the Hawk", author: "Maggie Stiefvater", year: 2019, description: "The first book in The Dreamer trilogy.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Mister Impossible", author: "Maggie Stiefvater", year: 2021, description: "The second book in The Dreamer trilogy.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "Greywaren", author: "Maggie Stiefvater", year: 2022, description: "The final book in The Dreamer trilogy.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "Shiver", author: "Maggie Stiefvater", year: 2009, description: "The first book in The Wolves of Mercy Falls series.", genres: ["fantasy", "young adult", "fiction"], rating: 3.9 },
-  { title: "Linger", author: "Maggie Stiefvater", year: 2010, description: "The second book in The Wolves of Mercy Falls series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "Forever", author: "Maggie Stiefvater", year: 2011, description: "The final book in The Wolves of Mercy Falls series.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Scorpio Races", author: "Maggie Stiefvater", year: 2011, description: "A standalone fantasy novel about water horses.", genres: ["fantasy", "young adult", "fiction"], rating: 4.2 },
-  { title: "All the Crooked Saints", author: "Maggie Stiefvater", year: 2017, description: "A standalone magical realism novel.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "The Call", author: "Peadar Ó Guilín", year: 2016, description: "The first book in The Call duology.", genres: ["fantasy", "young adult", "fiction"], rating: 4.0 },
-  { title: "The Invasion", author: "Peadar Ó Guilín", year: 2018, description: "The final book in The Call duology.", genres: ["fantasy", "young adult", "fiction"], rating: 4.1 },
-  
-  // Additional Science Fiction Books
-  { title: "Neuromancer", author: "William Gibson", year: 1984, description: "The first cyberpunk novel.", genres: ["science fiction", "cyberpunk"], rating: 4.2 },
-  { title: "Snow Crash", author: "Neal Stephenson", year: 1992, description: "A cyberpunk novel about virtual reality.", genres: ["science fiction", "cyberpunk"], rating: 4.1 },
-  { title: "The Diamond Age", author: "Neal Stephenson", year: 1995, description: "A post-cyberpunk novel about nanotechnology.", genres: ["science fiction", "cyberpunk"], rating: 4.0 },
-  { title: "Cryptonomicon", author: "Neal Stephenson", year: 1999, description: "A novel about cryptography and World War II.", genres: ["science fiction", "historical fiction"], rating: 4.1 },
-  { title: "Anathem", author: "Neal Stephenson", year: 2008, description: "A science fiction novel about mathematics and philosophy.", genres: ["science fiction", "fiction"], rating: 4.2 },
-  { title: "Seveneves", author: "Neal Stephenson", year: 2015, description: "A novel about humanity's survival after the moon explodes.", genres: ["science fiction", "fiction"], rating: 4.0 },
-  { title: "Fall; or, Dodge in Hell", author: "Neal Stephenson", year: 2019, description: "A novel about digital consciousness.", genres: ["science fiction", "fiction"], rating: 3.8 },
-  { title: "Termination Shock", author: "Neal Stephenson", year: 2021, description: "A novel about climate change and geoengineering.", genres: ["science fiction", "fiction"], rating: 3.9 },
-  { title: "The Foundation", author: "Isaac Asimov", year: 1951, description: "The first book in the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.3 },
-  { title: "Foundation and Empire", author: "Isaac Asimov", year: 1952, description: "The second book in the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.2 },
-  { title: "Second Foundation", author: "Isaac Asimov", year: 1953, description: "The third book in the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.3 },
-  { title: "Foundation's Edge", author: "Isaac Asimov", year: 1982, description: "The fourth book in the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.1 },
-  { title: "Foundation and Earth", author: "Isaac Asimov", year: 1986, description: "The fifth book in the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.0 },
-  { title: "Prelude to Foundation", author: "Isaac Asimov", year: 1988, description: "A prequel to the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.1 },
-  { title: "Forward the Foundation", author: "Isaac Asimov", year: 1993, description: "The final book in the Foundation series.", genres: ["science fiction", "fiction"], rating: 4.0 },
-  { title: "I, Robot", author: "Isaac Asimov", year: 1950, description: "A collection of robot stories.", genres: ["science fiction", "short stories"], rating: 4.2 },
-  { title: "The Caves of Steel", author: "Isaac Asimov", year: 1954, description: "The first book in the Robot series.", genres: ["science fiction", "mystery"], rating: 4.1 },
-  { title: "The Naked Sun", author: "Isaac Asimov", year: 1957, description: "The second book in the Robot series.", genres: ["science fiction", "mystery"], rating: 4.0 },
-  { title: "The Robots of Dawn", author: "Isaac Asimov", year: 1983, description: "The third book in the Robot series.", genres: ["science fiction", "mystery"], rating: 4.1 },
-  { title: "Robots and Empire", author: "Isaac Asimov", year: 1985, description: "The fourth book in the Robot series.", genres: ["science fiction", "fiction"], rating: 4.0 },
-  { title: "The Gods Themselves", author: "Isaac Asimov", year: 1972, description: "A novel about parallel universes.", genres: ["science fiction", "fiction"], rating: 4.1 },
-  { title: "Nightfall", author: "Isaac Asimov", year: 1990, description: "A novel about a world with multiple suns.", genres: ["science fiction", "fiction"], rating: 4.0 },
-  { title: "The End of Eternity", author: "Isaac Asimov", year: 1955, description: "A novel about time travel.", genres: ["science fiction", "fiction"], rating: 4.1 },
-  { title: "The Stars, Like Dust", author: "Isaac Asimov", year: 1951, description: "A novel about interstellar politics.", genres: ["science fiction", "fiction"], rating: 3.9 },
-  { title: "The Currents of Space", author: "Isaac Asimov", year: 1952, description: "A novel about space colonization.", genres: ["science fiction", "fiction"], rating: 3.8 },
-  { title: "Pebble in the Sky", author: "Isaac Asimov", year: 1950, description: "A novel about Earth's future.", genres: ["science fiction", "fiction"], rating: 3.9 },
-  { title: "The Hitchhiker's Guide to the Galaxy", author: "Douglas Adams", year: 1979, description: "A humorous science fiction novel.", genres: ["science fiction", "comedy", "fiction"], rating: 4.3 },
-  { title: "The Restaurant at the End of the Universe", author: "Douglas Adams", year: 1980, description: "The second book in the Hitchhiker's series.", genres: ["science fiction", "comedy", "fiction"], rating: 4.2 },
-  { title: "Life, the Universe and Everything", author: "Douglas Adams", year: 1982, description: "The third book in the Hitchhiker's series.", genres: ["science fiction", "comedy", "fiction"], rating: 4.1 },
-  { title: "So Long, and Thanks for All the Fish", author: "Douglas Adams", year: 1984, description: "The fourth book in the Hitchhiker's series.", genres: ["science fiction", "comedy", "fiction"], rating: 4.0 },
-  { title: "Mostly Harmless", author: "Douglas Adams", year: 1992, description: "The fifth book in the Hitchhiker's series.", genres: ["science fiction", "comedy", "fiction"], rating: 3.9 },
-  { title: "Dirk Gently's Holistic Detective Agency", author: "Douglas Adams", year: 1987, description: "A detective novel with supernatural elements.", genres: ["science fiction", "mystery", "comedy"], rating: 4.0 },
-  { title: "The Long Dark Tea-Time of the Soul", author: "Douglas Adams", year: 1988, description: "The second Dirk Gently novel.", genres: ["science fiction", "mystery", "comedy"], rating: 4.1 },
-  { title: "1984", author: "George Orwell", year: 1949, description: "A dystopian novel about totalitarianism.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.4 },
-  { title: "Animal Farm", author: "George Orwell", year: 1945, description: "An allegorical novel about revolution.", genres: ["fiction", "allegory"], rating: 4.3 },
-  { title: "Brave New World", author: "Aldous Huxley", year: 1932, description: "A dystopian novel about genetic engineering.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.2 },
-  { title: "Fahrenheit 451", author: "Ray Bradbury", year: 1953, description: "A dystopian novel about book burning.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.3 },
-  { title: "The Martian Chronicles", author: "Ray Bradbury", year: 1950, description: "A collection of stories about Mars colonization.", genres: ["science fiction", "short stories"], rating: 4.1 },
-  { title: "Something Wicked This Way Comes", author: "Ray Bradbury", year: 1962, description: "A dark fantasy novel about a traveling carnival.", genres: ["fantasy", "horror", "fiction"], rating: 4.0 },
-  { title: "The Illustrated Man", author: "Ray Bradbury", year: 1951, description: "A collection of science fiction stories.", genres: ["science fiction", "short stories"], rating: 4.1 },
-  { title: "The October Country", author: "Ray Bradbury", year: 1955, description: "A collection of horror and fantasy stories.", genres: ["horror", "fantasy", "short stories"], rating: 4.0 },
-  { title: "Dandelion Wine", author: "Ray Bradbury", year: 1957, description: "A novel about childhood and summer.", genres: ["fiction", "coming of age"], rating: 4.1 },
-  { title: "Death is a Lonely Business", author: "Ray Bradbury", year: 1985, description: "A detective novel set in 1949 Los Angeles.", genres: ["mystery", "fiction"], rating: 3.9 },
-  { title: "A Graveyard for Lunatics", author: "Ray Bradbury", year: 1990, description: "A sequel to Death is a Lonely Business.", genres: ["mystery", "fiction"], rating: 3.8 },
-  { title: "Let's All Kill Constance", author: "Ray Bradbury", year: 2003, description: "The final book in the detective trilogy.", genres: ["mystery", "fiction"], rating: 3.7 },
-  { title: "The Handmaid's Tale", author: "Margaret Atwood", year: 1985, description: "A dystopian novel about women's rights.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.3 },
-  { title: "The Testaments", author: "Margaret Atwood", year: 2019, description: "A sequel to The Handmaid's Tale.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.1 },
-  { title: "Oryx and Crake", author: "Margaret Atwood", year: 2003, description: "The first book in the MaddAddam trilogy.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.0 },
-  { title: "The Year of the Flood", author: "Margaret Atwood", year: 2009, description: "The second book in the MaddAddam trilogy.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.1 },
-  { title: "MaddAddam", author: "Margaret Atwood", year: 2013, description: "The final book in the MaddAddam trilogy.", genres: ["science fiction", "dystopian", "fiction"], rating: 4.0 },
-  { title: "The Blind Assassin", author: "Margaret Atwood", year: 2000, description: "A novel about sisters and storytelling.", genres: ["literary", "fiction"], rating: 4.2 },
-  { title: "Alias Grace", author: "Margaret Atwood", year: 1996, description: "A historical novel about a convicted murderer.", genres: ["historical fiction", "mystery"], rating: 4.1 },
-  { title: "Cat's Eye", author: "Margaret Atwood", year: 1988, description: "A novel about childhood bullying and memory.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "The Robber Bride", author: "Margaret Atwood", year: 1993, description: "A novel about female friendship and betrayal.", genres: ["literary", "fiction"], rating: 4.1 },
-  { title: "The Edible Woman", author: "Margaret Atwood", year: 1969, description: "Atwood's first novel about marriage and identity.", genres: ["literary", "fiction"], rating: 3.9 },
-  { title: "Surfacing", author: "Margaret Atwood", year: 1972, description: "A novel about a woman's search for her father.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "Lady Oracle", author: "Margaret Atwood", year: 1976, description: "A novel about a writer's double life.", genres: ["literary", "fiction"], rating: 3.9 },
-  { title: "Life Before Man", author: "Margaret Atwood", year: 1979, description: "A novel about relationships and evolution.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "Bodily Harm", author: "Margaret Atwood", year: 1981, description: "A novel about a journalist in the Caribbean.", genres: ["literary", "fiction"], rating: 3.9 },
-  { title: "The Heart Goes Last", author: "Margaret Atwood", year: 2015, description: "A novel about a couple in a social experiment.", genres: ["science fiction", "dystopian", "fiction"], rating: 3.8 },
-  { title: "Hag-Seed", author: "Margaret Atwood", year: 2016, description: "A retelling of The Tempest.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "The Penelopiad", author: "Margaret Atwood", year: 2005, description: "A retelling of The Odyssey from Penelope's perspective.", genres: ["literary", "fiction"], rating: 4.1 },
-  { title: "The Door", author: "Margaret Atwood", year: 2007, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "Morning in the Burned House", author: "Margaret Atwood", year: 1995, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "Interlunar", author: "Margaret Atwood", year: 1984, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "True Stories", author: "Margaret Atwood", year: 1981, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "Two-Headed Poems", author: "Margaret Atwood", year: 1978, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "You Are Happy", author: "Margaret Atwood", year: 1974, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "Power Politics", author: "Margaret Atwood", year: 1971, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "The Journals of Susanna Moodie", author: "Margaret Atwood", year: 1970, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "The Circle Game", author: "Margaret Atwood", year: 1966, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "Double Persephone", author: "Margaret Atwood", year: 1961, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "The Stone Diaries", author: "Carol Shields", year: 1993, description: "A Pulitzer Prize-winning novel about a woman's life.", genres: ["literary", "fiction"], rating: 4.2, awards: ["Pulitzer Prize"] },
-  { title: "Unless", author: "Carol Shields", year: 2002, description: "A novel about a mother's search for meaning.", genres: ["literary", "fiction"], rating: 4.1 },
-  { title: "Larry's Party", author: "Carol Shields", year: 1997, description: "A novel about a man's life through the lens of mazes.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "The Republic of Love", author: "Carol Shields", year: 1992, description: "A novel about love and relationships.", genres: ["literary", "fiction"], rating: 4.1 },
-  { title: "Swann", author: "Carol Shields", year: 1987, description: "A novel about a murdered poet.", genres: ["literary", "mystery", "fiction"], rating: 4.0 },
-  { title: "Happenstance", author: "Carol Shields", year: 1980, description: "A novel about a marriage from two perspectives.", genres: ["literary", "fiction"], rating: 4.1 },
-  { title: "Small Ceremonies", author: "Carol Shields", year: 1976, description: "Shields's first novel about family life.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "The Box Garden", author: "Carol Shields", year: 1977, description: "A novel about a woman's journey to self-discovery.", genres: ["literary", "fiction"], rating: 4.1 },
-  { title: "Various Miracles", author: "Carol Shields", year: 1985, description: "A collection of short stories.", genres: ["literary", "short stories"], rating: 4.0 },
-  { title: "The Orange Fish", author: "Carol Shields", year: 1989, description: "A collection of short stories.", genres: ["literary", "short stories"], rating: 4.1 },
-  { title: "Dressing Up for the Carnival", author: "Carol Shields", year: 2000, description: "A collection of short stories.", genres: ["literary", "short stories"], rating: 4.0 },
-  { title: "Collected Stories", author: "Carol Shields", year: 2004, description: "A comprehensive collection of short stories.", genres: ["literary", "short stories"], rating: 4.1 },
-  { title: "Coming Through Slaughter", author: "Michael Ondaatje", year: 1976, description: "A novel about jazz musician Buddy Bolden.", genres: ["literary", "historical fiction"], rating: 4.0 },
-  { title: "In the Skin of a Lion", author: "Michael Ondaatje", year: 1987, description: "A novel about immigrants in Toronto.", genres: ["literary", "historical fiction"], rating: 4.1 },
-  { title: "The English Patient", author: "Michael Ondaatje", year: 1992, description: "A Booker Prize-winning novel about love and war.", genres: ["literary", "historical fiction"], rating: 4.3, awards: ["Booker Prize"] },
-  { title: "Anil's Ghost", author: "Michael Ondaatje", year: 2000, description: "A novel about a forensic anthropologist in Sri Lanka.", genres: ["literary", "mystery", "fiction"], rating: 4.1 },
-  { title: "Divisadero", author: "Michael Ondaatje", year: 2007, description: "A novel about family and memory.", genres: ["literary", "fiction"], rating: 4.0 },
-  { title: "The Cat's Table", author: "Michael Ondaatje", year: 2011, description: "A novel about a boy's journey by ship.", genres: ["literary", "coming of age", "fiction"], rating: 4.1 },
-  { title: "Warlight", author: "Michael Ondaatje", year: 2018, description: "A novel about children left behind during WWII.", genres: ["literary", "historical fiction"], rating: 4.0 },
-  { title: "The Collected Works of Billy the Kid", author: "Michael Ondaatje", year: 1970, description: "A novel about the outlaw Billy the Kid.", genres: ["literary", "historical fiction"], rating: 4.1 },
-  { title: "Running in the Family", author: "Michael Ondaatje", year: 1982, description: "A memoir about family history in Sri Lanka.", genres: ["memoir", "biography"], rating: 4.2 },
-  { title: "Handwriting", author: "Michael Ondaatje", year: 1998, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "The Cinnamon Peeler", author: "Michael Ondaatje", year: 1989, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "Secular Love", author: "Michael Ondaatje", year: 1984, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "There's a Trick with a Knife I'm Learning to Do", author: "Michael Ondaatje", year: 1979, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "Rat Jelly", author: "Michael Ondaatje", year: 1973, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "The Dainty Monsters", author: "Michael Ondaatje", year: 1967, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "The Man with Seven Toes", author: "Michael Ondaatje", year: 1969, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "Elimination Dance", author: "Michael Ondaatje", year: 1978, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "Tin Roof", author: "Michael Ondaatje", year: 1982, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "The Story", author: "Michael Ondaatje", year: 2005, description: "A collection of poetry.", genres: ["poetry"], rating: 4.1 },
-  { title: "The Conversation", author: "Michael Ondaatje", year: 2012, description: "A collection of poetry.", genres: ["poetry"], rating: 4.0 },
-  { title: "The Long Poem Anthology", author: "Michael Ondaatje", year: 1979, description: "An anthology of long poems.", genres: ["poetry", "anthology"], rating: 4.1 },
-  { title: "The Brick Reader", author: "Michael Ondaatje", year: 1991, description: "An anthology of Canadian writing.", genres: ["anthology", "literary"], rating: 4.0 },
-  { title: "From Ink Lake", author: "Michael Ondaatje", year: 1990, description: "An anthology of Canadian stories.", genres: ["anthology", "short stories"], rating: 4.1 },
-  { title: "The Faber Book of Contemporary Canadian Short Stories", author: "Michael Ondaatje", year: 1990, description: "An anthology of Canadian short stories.", genres: ["anthology", "short stories"], rating: 4.0 },
-  { title: "The Vintage Book of Contemporary Canadian Fiction", author: "Michael Ondaatje", year: 1997, description: "An anthology of Canadian fiction.", genres: ["anthology", "fiction"], rating: 4.1 },
-  { title: "The Norton Anthology of English Literature", author: "Various", year: 1962, description: "A comprehensive anthology of English literature.", genres: ["anthology", "literary"], rating: 4.3 },
-  { title: "The Norton Anthology of American Literature", author: "Various", year: 1979, description: "A comprehensive anthology of American literature.", genres: ["anthology", "literary"], rating: 4.3 },
-  { title: "The Norton Anthology of World Literature", author: "Various", year: 2001, description: "A comprehensive anthology of world literature.", genres: ["anthology", "literary"], rating: 4.2 },
-  { title: "The Oxford Book of English Verse", author: "Various", year: 1900, description: "An anthology of English poetry.", genres: ["anthology", "poetry"], rating: 4.4 },
-  { title: "The Norton Anthology of Poetry", author: "Various", year: 1970, description: "A comprehensive anthology of poetry.", genres: ["anthology", "poetry"], rating: 4.3 },
-  { title: "The Best American Short Stories", author: "Various", year: 1915, description: "An annual anthology of American short stories.", genres: ["anthology", "short stories"], rating: 4.2 },
-  { title: "The O. Henry Prize Stories", author: "Various", year: 1919, description: "An annual anthology of short stories.", genres: ["anthology", "short stories"], rating: 4.1 },
-  { title: "The Pushcart Prize", author: "Various", year: 1976, description: "An annual anthology of small press writing.", genres: ["anthology", "literary"], rating: 4.0 },
-  { title: "The Best American Essays", author: "Various", year: 1986, description: "An annual anthology of American essays.", genres: ["anthology", "essays"], rating: 4.1 },
-  { title: "The Best American Poetry", author: "Various", year: 1988, description: "An annual anthology of American poetry.", genres: ["anthology", "poetry"], rating: 4.2 },
-  { title: "The Best American Science Fiction and Fantasy", author: "Various", year: 2015, description: "An annual anthology of science fiction and fantasy.", genres: ["anthology", "science fiction", "fantasy"], rating: 4.0 },
-  { title: "The Year's Best Science Fiction", author: "Various", year: 1984, description: "An annual anthology of science fiction.", genres: ["anthology", "science fiction"], rating: 4.1 },
-  { title: "The Year's Best Fantasy and Horror", author: "Various", year: 1988, description: "An annual anthology of fantasy and horror.", genres: ["anthology", "fantasy", "horror"], rating: 4.0 },
-  { title: "The Best American Mystery Stories", author: "Various", year: 1997, description: "An annual anthology of mystery stories.", genres: ["anthology", "mystery"], rating: 4.1 },
-  { title: "The Best American Crime Writing", author: "Various", year: 2002, description: "An annual anthology of crime writing.", genres: ["anthology", "crime"], rating: 4.0 },
-  { title: "The Best American Travel Writing", author: "Various", year: 2000, description: "An annual anthology of travel writing.", genres: ["anthology", "travel"], rating: 4.1 },
-  { title: "The Best American Sports Writing", author: "Various", year: 1991, description: "An annual anthology of sports writing.", genres: ["anthology", "sports"], rating: 4.0 },
-  { title: "The Best American Food Writing", author: "Various", year: 2000, description: "An annual anthology of food writing.", genres: ["anthology", "food"], rating: 4.1 },
-  { title: "The Best American Science and Nature Writing", author: "Various", year: 2000, description: "An annual anthology of science and nature writing.", genres: ["anthology", "science", "nature"], rating: 4.0 },
-  { title: "The Best American Nonrequired Reading", author: "Various", year: 2002, description: "An annual anthology of miscellaneous writing.", genres: ["anthology", "literary"], rating: 4.1 },
-  { title: "The Best American Comics", author: "Various", year: 2006, description: "An annual anthology of comics.", genres: ["anthology", "comics"], rating: 4.0 },
-  { title: "The Best American Infographics", author: "Various", year: 2013, description: "An annual anthology of infographics.", genres: ["anthology", "visual"], rating: 4.1 },
-  { title: "The Best American Magazine Writing", author: "Various", year: 2000, description: "An annual anthology of magazine writing.", genres: ["anthology", "journalism"], rating: 4.0 },
-  { title: "The Best American Newspaper Writing", author: "Various", year: 2001, description: "An annual anthology of newspaper writing.", genres: ["anthology", "journalism"], rating: 4.1 },
-  { title: "The Best American Spiritual Writing", author: "Various", year: 2004, description: "An annual anthology of spiritual writing.", genres: ["anthology", "spiritual"], rating: 4.0 },
-  { title: "The Best American Gay and Lesbian Writing", author: "Various", year: 2000, description: "An annual anthology of LGBTQ writing.", genres: ["anthology", "LGBTQ"], rating: 4.1 },
-  { title: "The Best American Erotica", author: "Various", year: 1993, description: "An annual anthology of erotic writing.", genres: ["anthology", "erotica"], rating: 4.0 },
-  { title: "The Best American Humor", author: "Various", year: 1993, description: "An annual anthology of humorous writing.", genres: ["anthology", "humor"], rating: 4.1 },
-  { title: "The Best American Political Writing", author: "Various", year: 2004, description: "An annual anthology of political writing.", genres: ["anthology", "politics"], rating: 4.0 },
-  { title: "The Best American Business Writing", author: "Various", year: 2012, description: "An annual anthology of business writing.", genres: ["anthology", "business"], rating: 4.1 },
-  { title: "The Best American Technology Writing", author: "Various", year: 2006, description: "An annual anthology of technology writing.", genres: ["anthology", "technology"], rating: 4.0 },
-  { title: "The Best American Medical Writing", author: "Various", year: 2006, description: "An annual anthology of medical writing.", genres: ["anthology", "medical"], rating: 4.1 },
-  { title: "The Best American Legal Writing", author: "Various", year: 2006, description: "An annual anthology of legal writing.", genres: ["anthology", "legal"], rating: 4.0 },
-  { title: "The Best American Historical Writing", author: "Various", year: 2007, description: "An annual anthology of historical writing.", genres: ["anthology", "history"], rating: 4.1 },
-  { title: "The Best American Military Writing", author: "Various", year: 2008, description: "An annual anthology of military writing.", genres: ["anthology", "military"], rating: 4.0 },
-  { title: "The Best American Environmental Writing", author: "Various", year: 2001, description: "An annual anthology of environmental writing.", genres: ["anthology", "environmental"], rating: 4.1 },
-  { title: "The Best American Essays of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of essays.", genres: ["anthology", "essays"], rating: 4.3 },
-  { title: "The Best American Short Stories of the Century", author: "Various", year: 1999, description: "A century-spanning anthology of short stories.", genres: ["anthology", "short stories"], rating: 4.3 },
-  { title: "The Best American Poetry of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of poetry.", genres: ["anthology", "poetry"], rating: 4.3 },
-  { title: "The Best American Science Fiction of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of science fiction.", genres: ["anthology", "science fiction"], rating: 4.2 },
-  { title: "The Best American Fantasy of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of fantasy.", genres: ["anthology", "fantasy"], rating: 4.2 },
-  { title: "The Best American Mystery Stories of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of mystery stories.", genres: ["anthology", "mystery"], rating: 4.2 },
-  { title: "The Best American Crime Stories of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of crime stories.", genres: ["anthology", "crime"], rating: 4.1 },
-  { title: "The Best American Travel Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of travel writing.", genres: ["anthology", "travel"], rating: 4.1 },
-  { title: "The Best American Sports Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of sports writing.", genres: ["anthology", "sports"], rating: 4.1 },
-  { title: "The Best American Food Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of food writing.", genres: ["anthology", "food"], rating: 4.1 },
-  { title: "The Best American Science and Nature Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of science and nature writing.", genres: ["anthology", "science", "nature"], rating: 4.1 },
-  { title: "The Best American Nonrequired Reading of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of miscellaneous writing.", genres: ["anthology", "literary"], rating: 4.1 },
-  { title: "The Best American Comics of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of comics.", genres: ["anthology", "comics"], rating: 4.0 },
-  { title: "The Best American Infographics of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of infographics.", genres: ["anthology", "visual"], rating: 4.0 },
-  { title: "The Best American Magazine Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of magazine writing.", genres: ["anthology", "journalism"], rating: 4.0 },
-  { title: "The Best American Newspaper Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of newspaper writing.", genres: ["anthology", "journalism"], rating: 4.0 },
-  { title: "The Best American Spiritual Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of spiritual writing.", genres: ["anthology", "spiritual"], rating: 4.0 },
-  { title: "The Best American Gay and Lesbian Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of LGBTQ writing.", genres: ["anthology", "LGBTQ"], rating: 4.0 },
-  { title: "The Best American Erotica of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of erotic writing.", genres: ["anthology", "erotica"], rating: 4.0 },
-  { title: "The Best American Humor of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of humorous writing.", genres: ["anthology", "humor"], rating: 4.0 },
-  { title: "The Best American Political Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of political writing.", genres: ["anthology", "politics"], rating: 4.0 },
-  { title: "The Best American Business Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of business writing.", genres: ["anthology", "business"], rating: 4.0 },
-  { title: "The Best American Technology Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of technology writing.", genres: ["anthology", "technology"], rating: 4.0 },
-  { title: "The Best American Medical Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of medical writing.", genres: ["anthology", "medical"], rating: 4.0 },
-  { title: "The Best American Legal Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of legal writing.", genres: ["anthology", "legal"], rating: 4.0 },
-  { title: "The Best American Historical Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of historical writing.", genres: ["anthology", "history"], rating: 4.0 },
-  { title: "The Best American Military Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of military writing.", genres: ["anthology", "military"], rating: 4.0 },
-  { title: "The Best American Environmental Writing of the Century", author: "Various", year: 2000, description: "A century-spanning anthology of environmental writing.", genres: ["anthology", "environmental"], rating: 4.0 },
-  
-  // Top 100 Books of All Time & Required Reading
-  { title: "To Kill a Mockingbird", author: "Harper Lee", year: 1960, description: "A classic novel about racial injustice in the American South.", genres: ["classic", "literary", "fiction"], rating: 4.5, awards: ["Pulitzer Prize"] },
-  { title: "The Great Gatsby", author: "F. Scott Fitzgerald", year: 1925, description: "A novel about the American Dream and the Jazz Age.", genres: ["classic", "literary", "fiction"], rating: 4.4 },
-  { title: "Lord of the Flies", author: "William Golding", year: 1954, description: "A novel about the dark side of human nature.", genres: ["classic", "literary", "fiction"], rating: 4.2 },
-  { title: "The Grapes of Wrath", author: "John Steinbeck", year: 1939, description: "A novel about the Great Depression and migrant workers.", genres: ["classic", "literary", "fiction"], rating: 4.4, awards: ["Pulitzer Prize"] },
-  { title: "Of Mice and Men", author: "John Steinbeck", year: 1937, description: "A novella about friendship during the Great Depression.", genres: ["classic", "literary", "fiction"], rating: 4.3 },
-  { title: "The Old Man and the Sea", author: "Ernest Hemingway", year: 1952, description: "A novel about an old fisherman's struggle.", genres: ["classic", "literary", "fiction"], rating: 4.2, awards: ["Pulitzer Prize"] },
-  { title: "For Whom the Bell Tolls", author: "Ernest Hemingway", year: 1940, description: "A novel about the Spanish Civil War.", genres: ["classic", "literary", "fiction"], rating: 4.3 },
-  { title: "A Farewell to Arms", author: "Ernest Hemingway", year: 1929, description: "A novel about love and war during WWI.", genres: ["classic", "literary", "fiction"], rating: 4.2 },
-  { title: "The Sun Also Rises", author: "Ernest Hemingway", year: 1926, description: "A novel about the Lost Generation in Paris.", genres: ["classic", "literary", "fiction"], rating: 4.1 },
-  { title: "The Adventures of Huckleberry Finn", author: "Mark Twain", year: 1884, description: "A novel about a boy's journey down the Mississippi River.", genres: ["classic", "adventure", "fiction"], rating: 4.4 },
-  { title: "The Adventures of Tom Sawyer", author: "Mark Twain", year: 1876, description: "A novel about a boy's adventures in Missouri.", genres: ["classic", "adventure", "fiction"], rating: 4.2 },
-  { title: "Moby-Dick", author: "Herman Melville", year: 1851, description: "An epic novel about a whaling voyage and obsession.", genres: ["classic", "adventure", "fiction"], rating: 4.1 },
-  { title: "The Scarlet Letter", author: "Nathaniel Hawthorne", year: 1850, description: "A novel about sin and redemption in Puritan New England.", genres: ["classic", "literary", "fiction"], rating: 4.0 },
-  { title: "The Crucible", author: "Arthur Miller", year: 1953, description: "A play about the Salem witch trials.", genres: ["classic", "drama", "historical"], rating: 4.2 },
-  { title: "Death of a Salesman", author: "Arthur Miller", year: 1949, description: "A play about the American Dream and family.", genres: ["classic", "drama", "fiction"], rating: 4.3, awards: ["Pulitzer Prize"] },
-  { title: "Romeo and Juliet", author: "William Shakespeare", year: 1597, description: "A tragic play about young love.", genres: ["classic", "drama", "romance"], rating: 4.4 },
-  { title: "Hamlet", author: "William Shakespeare", year: 1603, description: "A tragic play about revenge and madness.", genres: ["classic", "drama", "tragedy"], rating: 4.5 },
-  { title: "Macbeth", author: "William Shakespeare", year: 1606, description: "A tragic play about ambition and power.", genres: ["classic", "drama", "tragedy"], rating: 4.4 },
-  { title: "Othello", author: "William Shakespeare", year: 1604, description: "A tragic play about jealousy and betrayal.", genres: ["classic", "drama", "tragedy"], rating: 4.3 },
-  { title: "King Lear", author: "William Shakespeare", year: 1606, description: "A tragic play about family and power.", genres: ["classic", "drama", "tragedy"], rating: 4.4 },
-  { title: "Julius Caesar", author: "William Shakespeare", year: 1599, description: "A historical play about betrayal and power.", genres: ["classic", "drama", "historical"], rating: 4.2 },
-  { title: "A Midsummer Night's Dream", author: "William Shakespeare", year: 1596, description: "A comedy about love and magic.", genres: ["classic", "drama", "comedy"], rating: 4.3 },
-  { title: "The Tempest", author: "William Shakespeare", year: 1611, description: "A play about magic, revenge, and forgiveness.", genres: ["classic", "drama", "fantasy"], rating: 4.2 },
-  { title: "Much Ado About Nothing", author: "William Shakespeare", year: 1598, description: "A comedy about love and deception.", genres: ["classic", "drama", "comedy"], rating: 4.2 },
-  { title: "Twelfth Night", author: "William Shakespeare", year: 1601, description: "A comedy about mistaken identity and love.", genres: ["classic", "drama", "comedy"], rating: 4.2 },
-  { title: "As You Like It", author: "William Shakespeare", year: 1599, description: "A comedy about love and disguise.", genres: ["classic", "drama", "comedy"], rating: 4.1 },
-  { title: "The Merchant of Venice", author: "William Shakespeare", year: 1596, description: "A play about justice and mercy.", genres: ["classic", "drama", "comedy"], rating: 4.1 },
-  { title: "The Taming of the Shrew", author: "William Shakespeare", year: 1592, description: "A comedy about marriage and gender roles.", genres: ["classic", "drama", "comedy"], rating: 4.0 },
-  { title: "Antony and Cleopatra", author: "William Shakespeare", year: 1607, description: "A tragedy about love and power.", genres: ["classic", "drama", "tragedy"], rating: 4.1 },
-  { title: "Coriolanus", author: "William Shakespeare", year: 1608, description: "A tragedy about pride and politics.", genres: ["classic", "drama", "tragedy"], rating: 4.0 },
-  { title: "Timon of Athens", author: "William Shakespeare", year: 1607, description: "A tragedy about friendship and betrayal.", genres: ["classic", "drama", "tragedy"], rating: 3.9 },
-  { title: "Pericles, Prince of Tyre", author: "William Shakespeare", year: 1608, description: "A romance about adventure and family.", genres: ["classic", "drama", "romance"], rating: 3.8 },
-  { title: "Cymbeline", author: "William Shakespeare", year: 1611, description: "A romance about love and forgiveness.", genres: ["classic", "drama", "romance"], rating: 3.9 },
-  { title: "The Winter's Tale", author: "William Shakespeare", year: 1611, description: "A romance about jealousy and redemption.", genres: ["classic", "drama", "romance"], rating: 4.0 },
-  { title: "The Two Noble Kinsmen", author: "William Shakespeare", year: 1613, description: "A romance about friendship and love.", genres: ["classic", "drama", "romance"], rating: 3.8 },
-  { title: "Henry IV, Part 1", author: "William Shakespeare", year: 1597, description: "A history play about kingship and rebellion.", genres: ["classic", "drama", "historical"], rating: 4.1 },
-  { title: "Henry IV, Part 2", author: "William Shakespeare", year: 1598, description: "A history play about kingship and succession.", genres: ["classic", "drama", "historical"], rating: 4.0 },
-  { title: "Henry V", author: "William Shakespeare", year: 1599, description: "A history play about war and leadership.", genres: ["classic", "drama", "historical"], rating: 4.2 },
-  { title: "Henry VI, Part 1", author: "William Shakespeare", year: 1591, description: "A history play about the Wars of the Roses.", genres: ["classic", "drama", "historical"], rating: 3.9 },
-  { title: "Henry VI, Part 2", author: "William Shakespeare", year: 1591, description: "A history play about civil war.", genres: ["classic", "drama", "historical"], rating: 3.9 },
-  { title: "Henry VI, Part 3", author: "William Shakespeare", year: 1591, description: "A history play about the end of civil war.", genres: ["classic", "drama", "historical"], rating: 3.8 },
-  { title: "Richard III", author: "William Shakespeare", year: 1592, description: "A history play about tyranny and ambition.", genres: ["classic", "drama", "historical"], rating: 4.1 },
-  { title: "Richard II", author: "William Shakespeare", year: 1595, description: "A history play about kingship and deposition.", genres: ["classic", "drama", "historical"], rating: 4.0 },
-  { title: "Henry VIII", author: "William Shakespeare", year: 1613, description: "A history play about the Tudor court.", genres: ["classic", "drama", "historical"], rating: 3.9 },
-  { title: "King John", author: "William Shakespeare", year: 1596, description: "A history play about medieval politics.", genres: ["classic", "drama", "historical"], rating: 3.8 },
-  { title: "Edward III", author: "William Shakespeare", year: 1596, description: "A history play about medieval warfare.", genres: ["classic", "drama", "historical"], rating: 3.7 },
-  { title: "Sir Thomas More", author: "William Shakespeare", year: 1600, description: "A history play about martyrdom.", genres: ["classic", "drama", "historical"], rating: 3.6 },
-  { title: "The Two Gentlemen of Verona", author: "William Shakespeare", year: 1594, description: "A comedy about friendship and love.", genres: ["classic", "drama", "comedy"], rating: 3.9 },
-  { title: "The Comedy of Errors", author: "William Shakespeare", year: 1594, description: "A comedy about mistaken identity.", genres: ["classic", "drama", "comedy"], rating: 3.8 },
-  { title: "Love's Labour's Lost", author: "William Shakespeare", year: 1595, description: "A comedy about courtship and learning.", genres: ["classic", "drama", "comedy"], rating: 3.9 },
-  { title: "All's Well That Ends Well", author: "William Shakespeare", year: 1602, description: "A comedy about love and healing.", genres: ["classic", "drama", "comedy"], rating: 3.8 },
-  { title: "Measure for Measure", author: "William Shakespeare", year: 1604, description: "A comedy about justice and mercy.", genres: ["classic", "drama", "comedy"], rating: 4.0 },
-  { title: "Troilus and Cressida", author: "William Shakespeare", year: 1602, description: "A tragedy about love and war.", genres: ["classic", "drama", "tragedy"], rating: 3.9 },
-  { title: "Titus Andronicus", author: "William Shakespeare", year: 1594, description: "A tragedy about revenge and violence.", genres: ["classic", "drama", "tragedy"], rating: 3.7 },
-  { title: "The Rape of Lucrece", author: "William Shakespeare", year: 1594, description: "A narrative poem about virtue and violence.", genres: ["classic", "poetry", "narrative"], rating: 3.8 },
-  { title: "Venus and Adonis", author: "William Shakespeare", year: 1593, description: "A narrative poem about love and death.", genres: ["classic", "poetry", "narrative"], rating: 3.9 },
-  { title: "The Sonnets", author: "William Shakespeare", year: 1609, description: "A collection of 154 sonnets about love and time.", genres: ["classic", "poetry", "sonnets"], rating: 4.3 },
-  { title: "A Lover's Complaint", author: "William Shakespeare", year: 1609, description: "A narrative poem about love and betrayal.", genres: ["classic", "poetry", "narrative"], rating: 3.7 },
-  { title: "The Passionate Pilgrim", author: "William Shakespeare", year: 1599, description: "A collection of poems about love.", genres: ["classic", "poetry", "collection"], rating: 3.6 },
-  { title: "The Phoenix and the Turtle", author: "William Shakespeare", year: 1601, description: "A poem about love and death.", genres: ["classic", "poetry", "allegory"], rating: 3.8 },
-  
-  // Holiday & Seasonal Books
-  // Christmas Books
-  { title: "A Christmas Carol", author: "Charles Dickens", year: 1843, description: "A classic Christmas story about Ebenezer Scrooge's redemption.", genres: ["classic", "christmas", "fiction"], rating: 4.5 },
-  { title: "The Gift of the Magi", author: "O. Henry", year: 1905, description: "A short story about a couple's Christmas gifts.", genres: ["classic", "christmas", "short story"], rating: 4.3 },
-  { title: "The Polar Express", author: "Chris Van Allsburg", year: 1985, description: "A magical train journey to the North Pole.", genres: ["children", "christmas", "fantasy"], rating: 4.4 },
-  { title: "How the Grinch Stole Christmas!", author: "Dr. Seuss", year: 1957, description: "The Grinch learns the true meaning of Christmas.", genres: ["children", "christmas", "poetry"], rating: 4.6 },
-  { title: "The Night Before Christmas", author: "Clement Clarke Moore", year: 1823, description: "A classic Christmas poem about Santa's visit.", genres: ["classic", "christmas", "poetry"], rating: 4.4 },
-  { title: "The Nutcracker", author: "E.T.A. Hoffmann", year: 1816, description: "A magical Christmas story about a nutcracker that comes to life.", genres: ["classic", "christmas", "fantasy"], rating: 4.2 },
-  { title: "The Little Match Girl", author: "Hans Christian Andersen", year: 1845, description: "A tragic Christmas story about a poor girl.", genres: ["classic", "christmas", "short story"], rating: 4.1 },
-  { title: "The Snowman", author: "Raymond Briggs", year: 1978, description: "A wordless picture book about a snowman's magical night.", genres: ["children", "christmas", "fantasy"], rating: 4.3 },
-  { title: "The Best Christmas Pageant Ever", author: "Barbara Robinson", year: 1972, description: "A humorous story about the worst kids in town putting on a Christmas pageant.", genres: ["children", "christmas", "comedy"], rating: 4.2 },
-  { title: "The Christmas Box", author: "Richard Paul Evans", year: 1993, description: "A touching story about the true meaning of Christmas.", genres: ["contemporary", "christmas", "fiction"], rating: 4.0 },
-  { title: "Skipping Christmas", author: "John Grisham", year: 2001, description: "A couple decides to skip Christmas and go on a cruise.", genres: ["contemporary", "christmas", "comedy"], rating: 3.9 },
-  { title: "The Christmas Train", author: "David Baldacci", year: 2002, description: "A journalist's journey on a Christmas train.", genres: ["contemporary", "christmas", "romance"], rating: 3.8 },
-  { title: "The Christmas Sweater", author: "Glenn Beck", year: 2008, description: "A story about forgiveness and the true meaning of Christmas.", genres: ["contemporary", "christmas", "fiction"], rating: 3.7 },
-  { title: "The Christmas List", author: "Richard Paul Evans", year: 2009, description: "A man reads his own obituary and decides to change his life.", genres: ["contemporary", "christmas", "fiction"], rating: 3.9 },
-  { title: "The Christmas Promise", author: "Richard Paul Evans", year: 2010, description: "A story about love, loss, and Christmas miracles.", genres: ["contemporary", "christmas", "romance"], rating: 3.8 },
-  { title: "The Christmas Room", author: "Catherine Anderson", year: 2017, description: "A romance set during the Christmas season.", genres: ["contemporary", "christmas", "romance"], rating: 3.9 },
-  { title: "The Christmas Wedding", author: "James Patterson", year: 2011, description: "A family gathers for a Christmas wedding.", genres: ["contemporary", "christmas", "romance"], rating: 3.7 },
-  { title: "The Christmas Hope", author: "Donna VanLiere", year: 2005, description: "A story about hope and healing during Christmas.", genres: ["contemporary", "christmas", "fiction"], rating: 3.8 },
-  { title: "The Christmas Shoes", author: "Donna VanLiere", year: 2001, description: "A touching story about a boy buying shoes for his dying mother.", genres: ["contemporary", "christmas", "fiction"], rating: 3.9 },
-  { title: "The Christmas Blessing", author: "Donna VanLiere", year: 2003, description: "A story about love and second chances at Christmas.", genres: ["contemporary", "christmas", "romance"], rating: 3.8 },
-  { title: "The Christmas Secret", author: "Donna VanLiere", year: 2004, description: "A story about finding love and faith during Christmas.", genres: ["contemporary", "christmas", "romance"], rating: 3.7 },
-  { title: "The Christmas Journey", author: "Donna VanLiere", year: 2010, description: "A retelling of the Christmas story.", genres: ["contemporary", "christmas", "religious"], rating: 3.8 },
-  { title: "The Christmas Note", author: "Donna VanLiere", year: 2011, description: "A story about family and forgiveness at Christmas.", genres: ["contemporary", "christmas", "fiction"], rating: 3.7 },
-  { title: "The Christmas Light", author: "Donna VanLiere", year: 2013, description: "A story about hope and healing during the holidays.", genres: ["contemporary", "christmas", "fiction"], rating: 3.8 },
-  { title: "The Christmas Town", author: "Donna VanLiere", year: 2016, description: "A story about finding home and family at Christmas.", genres: ["contemporary", "christmas", "romance"], rating: 3.7 },
-  { title: "The Christmas Table", author: "Donna VanLiere", year: 2017, description: "A story about love and family traditions.", genres: ["contemporary", "christmas", "romance"], rating: 3.8 },
-  { title: "The Christmas Prayer", author: "Donna VanLiere", year: 2018, description: "A story about faith and miracles at Christmas.", genres: ["contemporary", "christmas", "religious"], rating: 3.7 },
-  { title: "The Christmas Wish", author: "Donna VanLiere", year: 2019, description: "A story about hope and dreams coming true.", genres: ["contemporary", "christmas", "romance"], rating: 3.8 },
-  { title: "The Christmas Star", author: "Donna VanLiere", year: 2020, description: "A story about love and redemption during Christmas.", genres: ["contemporary", "christmas", "romance"], rating: 3.7 },
-  { title: "The Christmas Bridge", author: "Donna VanLiere", year: 2021, description: "A story about connecting with others during the holidays.", genres: ["contemporary", "christmas", "fiction"], rating: 3.8 },
-  { title: "The Christmas Window", author: "Donna VanLiere", year: 2022, description: "A story about seeing the world through new eyes.", genres: ["contemporary", "christmas", "romance"], rating: 3.7 },
-  { title: "The Christmas Door", author: "Donna VanLiere", year: 2023, description: "A story about opening doors to new possibilities.", genres: ["contemporary", "christmas", "romance"], rating: 3.8 },
-  
-  // Halloween Books
-  { title: "The Legend of Sleepy Hollow", author: "Washington Irving", year: 1820, description: "A classic Halloween story about the Headless Horseman.", genres: ["classic", "halloween", "horror"], rating: 4.3 },
-  { title: "The Raven", author: "Edgar Allan Poe", year: 1845, description: "A haunting poem about loss and the supernatural.", genres: ["classic", "halloween", "poetry"], rating: 4.4 },
-  { title: "The Tell-Tale Heart", author: "Edgar Allan Poe", year: 1843, description: "A psychological horror story about guilt and madness.", genres: ["classic", "halloween", "horror"], rating: 4.2 },
-  { title: "The Fall of the House of Usher", author: "Edgar Allan Poe", year: 1839, description: "A gothic horror story about a decaying mansion.", genres: ["classic", "halloween", "horror"], rating: 4.1 },
-  { title: "The Masque of the Red Death", author: "Edgar Allan Poe", year: 1842, description: "A story about a deadly plague and a masquerade ball.", genres: ["classic", "halloween", "horror"], rating: 4.0 },
-  { title: "The Pit and the Pendulum", author: "Edgar Allan Poe", year: 1842, description: "A story about torture and survival during the Spanish Inquisition.", genres: ["classic", "halloween", "horror"], rating: 4.1 },
-  { title: "The Black Cat", author: "Edgar Allan Poe", year: 1843, description: "A story about guilt, alcoholism, and a mysterious cat.", genres: ["classic", "halloween", "horror"], rating: 4.0 },
-  { title: "The Cask of Amontillado", author: "Edgar Allan Poe", year: 1846, description: "A story about revenge and murder during carnival.", genres: ["classic", "halloween", "horror"], rating: 4.2 },
-  { title: "The Murders in the Rue Morgue", author: "Edgar Allan Poe", year: 1841, description: "The first modern detective story.", genres: ["classic", "halloween", "mystery"], rating: 4.1 },
-  { title: "The Purloined Letter", author: "Edgar Allan Poe", year: 1844, description: "A detective story about a stolen letter.", genres: ["classic", "halloween", "mystery"], rating: 4.0 },
-  { title: "The Mystery of Marie Rogêt", author: "Edgar Allan Poe", year: 1842, description: "A detective story based on a real murder case.", genres: ["classic", "halloween", "mystery"], rating: 3.9 },
-  { title: "The Gold-Bug", author: "Edgar Allan Poe", year: 1843, description: "A story about treasure hunting and cryptography.", genres: ["classic", "halloween", "mystery"], rating: 4.0 },
-  { title: "The Premature Burial", author: "Edgar Allan Poe", year: 1844, description: "A story about the fear of being buried alive.", genres: ["classic", "halloween", "horror"], rating: 3.9 },
-  { title: "The Facts in the Case of M. Valdemar", author: "Edgar Allan Poe", year: 1845, description: "A story about mesmerism and death.", genres: ["classic", "halloween", "horror"], rating: 4.0 },
-  { title: "The Oval Portrait", author: "Edgar Allan Poe", year: 1842, description: "A story about art and obsession.", genres: ["classic", "halloween", "horror"], rating: 3.8 },
-  { title: "The Assignation", author: "Edgar Allan Poe", year: 1834, description: "A story about love and suicide.", genres: ["classic", "halloween", "romance"], rating: 3.7 },
-  { title: "Berenice", author: "Edgar Allan Poe", year: 1835, description: "A story about obsession and madness.", genres: ["classic", "halloween", "horror"], rating: 3.8 },
-  { title: "Morella", author: "Edgar Allan Poe", year: 1835, description: "A story about reincarnation and death.", genres: ["classic", "halloween", "horror"], rating: 3.7 },
-  { title: "Ligeia", author: "Edgar Allan Poe", year: 1838, description: "A story about love, death, and the supernatural.", genres: ["classic", "halloween", "horror"], rating: 4.0 },
-  { title: "The Haunted Palace", author: "Edgar Allan Poe", year: 1839, description: "A poem about a haunted castle.", genres: ["classic", "halloween", "poetry"], rating: 3.9 },
-  { title: "The Conqueror Worm", author: "Edgar Allan Poe", year: 1843, description: "A poem about death and the theater of life.", genres: ["classic", "halloween", "poetry"], rating: 4.0 },
-  { title: "Ulalume", author: "Edgar Allan Poe", year: 1847, description: "A poem about love and death.", genres: ["classic", "halloween", "poetry"], rating: 3.8 },
-  { title: "Annabel Lee", author: "Edgar Allan Poe", year: 1849, description: "A poem about lost love and death.", genres: ["classic", "halloween", "poetry"], rating: 4.1 },
-  { title: "The Bells", author: "Edgar Allan Poe", year: 1849, description: "A poem about different types of bells and their meanings.", genres: ["classic", "halloween", "poetry"], rating: 4.0 },
-  { title: "Eldorado", author: "Edgar Allan Poe", year: 1849, description: "A poem about the search for the mythical city of gold.", genres: ["classic", "halloween", "poetry"], rating: 3.9 },
-  { title: "A Dream Within a Dream", author: "Edgar Allan Poe", year: 1849, description: "A poem about reality and illusion.", genres: ["classic", "halloween", "poetry"], rating: 4.0 },
-  { title: "The City in the Sea", author: "Edgar Allan Poe", year: 1845, description: "A poem about a sunken city.", genres: ["classic", "halloween", "poetry"], rating: 3.8 },
-  { title: "The Sleeper", author: "Edgar Allan Poe", year: 1831, description: "A poem about death and sleep.", genres: ["classic", "halloween", "poetry"], rating: 3.9 },
-  { title: "The Valley of Unrest", author: "Edgar Allan Poe", year: 1831, description: "A poem about a haunted valley.", genres: ["classic", "halloween", "poetry"], rating: 3.7 },
-  { title: "The Lake", author: "Edgar Allan Poe", year: 1827, description: "A poem about a beautiful lake.", genres: ["classic", "halloween", "poetry"], rating: 3.8 },
-  { title: "To Helen", author: "Edgar Allan Poe", year: 1831, description: "A poem about beauty and inspiration.", genres: ["classic", "halloween", "poetry"], rating: 3.9 },
-  { title: "Israfel", author: "Edgar Allan Poe", year: 1831, description: "A poem about an angelic musician.", genres: ["classic", "halloween", "poetry"], rating: 3.8 },
-  { title: "The Coliseum", author: "Edgar Allan Poe", year: 1833, description: "A poem about the ruins of the Roman Colosseum.", genres: ["classic", "halloween", "poetry"], rating: 3.7 },
-  { title: "The Haunted Mind", author: "Nathaniel Hawthorne", year: 1835, description: "A story about dreams and the supernatural.", genres: ["classic", "halloween", "horror"], rating: 3.8 },
-  { title: "Young Goodman Brown", author: "Nathaniel Hawthorne", year: 1835, description: "A story about temptation and the devil.", genres: ["classic", "halloween", "horror"], rating: 4.0 },
-  { title: "The Minister's Black Veil", author: "Nathaniel Hawthorne", year: 1836, description: "A story about sin and secrecy.", genres: ["classic", "halloween", "horror"], rating: 3.9 },
-  { title: "The Birthmark", author: "Nathaniel Hawthorne", year: 1843, description: "A story about perfection and obsession.", genres: ["classic", "halloween", "horror"], rating: 4.1 },
-  { title: "Rappaccini's Daughter", author: "Nathaniel Hawthorne", year: 1844, description: "A story about a poisonous garden and love.", genres: ["classic", "halloween", "horror"], rating: 4.0 },
-  { title: "The House of the Seven Gables", author: "Nathaniel Hawthorne", year: 1851, description: "A gothic novel about a cursed family.", genres: ["classic", "halloween", "horror"], rating: 4.2 },
-  { title: "The Scarlet Letter", author: "Nathaniel Hawthorne", year: 1850, description: "A novel about sin, guilt, and redemption.", genres: ["classic", "halloween", "historical fiction"], rating: 4.3 },
-  { title: "The Marble Faun", author: "Nathaniel Hawthorne", year: 1860, description: "A novel about art, love, and sin in Italy.", genres: ["classic", "halloween", "romance"], rating: 3.9 },
-  { title: "The Blithedale Romance", author: "Nathaniel Hawthorne", year: 1852, description: "A novel about a utopian community.", genres: ["classic", "halloween", "romance"], rating: 3.8 },
-  { title: "Fanshawe", author: "Nathaniel Hawthorne", year: 1828, description: "Hawthorne's first novel about college life.", genres: ["classic", "halloween", "romance"], rating: 3.7 },
-  { title: "The Dolliver Romance", author: "Nathaniel Hawthorne", year: 1864, description: "An unfinished novel about immortality.", genres: ["classic", "halloween", "fantasy"], rating: 3.6 },
-  { title: "Septimius Felton", author: "Nathaniel Hawthorne", year: 1872, description: "An unfinished novel about eternal life.", genres: ["classic", "halloween", "fantasy"], rating: 3.7 },
-  { title: "The Ancestral Footstep", author: "Nathaniel Hawthorne", year: 1883, description: "An unfinished novel about family history.", genres: ["classic", "halloween", "mystery"], rating: 3.6 },
-  { title: "The Ghost of the Count's Daughter", author: "Nathaniel Hawthorne", year: 1838, description: "A story about a ghost and revenge.", genres: ["classic", "halloween", "horror"], rating: 3.8 },
-  { title: "The Hollow of the Three Hills", author: "Nathaniel Hawthorne", year: 1830, description: "A story about witchcraft and prophecy.", genres: ["classic", "halloween", "horror"], rating: 3.7 },
-  { title: "The Wives of the Dead", author: "Nathaniel Hawthorne", year: 1832, description: "A story about two widows and their husbands.", genres: ["classic", "halloween", "romance"], rating: 3.8 },
-  { title: "The White Old Maid", author: "Nathaniel Hawthorne", year: 1835, description: "A story about a mysterious woman in white.", genres: ["classic", "halloween", "mystery"], rating: 3.7 },
-  { title: "The Ambitious Guest", author: "Nathaniel Hawthorne", year: 1835, description: "A story about ambition and fate.", genres: ["classic", "halloween", "tragedy"], rating: 3.8 },
-  { title: "The Wedding Knell", author: "Nathaniel Hawthorne", year: 1836, description: "A story about a wedding and death.", genres: ["classic", "halloween", "tragedy"], rating: 3.7 },
-  { title: "The Maypole of Merry Mount", author: "Nathaniel Hawthorne", year: 1836, description: "A story about Puritanism and celebration.", genres: ["classic", "halloween", "historical fiction"], rating: 3.8 },
-  { title: "The Gentle Boy", author: "Nathaniel Hawthorne", year: 1832, description: "A story about religious persecution.", genres: ["classic", "halloween", "historical fiction"], rating: 3.7 },
-  { title: "The Gray Champion", author: "Nathaniel Hawthorne", year: 1835, description: "A story about a mysterious protector.", genres: ["classic", "halloween", "historical fiction"], rating: 3.8 },
-  { title: "Endicott and the Red Cross", author: "Nathaniel Hawthorne", year: 1838, description: "A story about religious freedom.", genres: ["classic", "halloween", "historical fiction"], rating: 3.7 },
-  { title: "The Shaker Bridal", author: "Nathaniel Hawthorne", year: 1838, description: "A story about Shaker life and love.", genres: ["classic", "halloween", "historical fiction"], rating: 3.6 },
-  { title: "The Lily's Quest", author: "Nathaniel Hawthorne", year: 1839, description: "A story about love and death.", genres: ["classic", "halloween", "romance"], rating: 3.7 },
-  { title: "The Threefold Destiny", author: "Nathaniel Hawthorne", year: 1838, description: "A story about fate and destiny.", genres: ["classic", "halloween", "fantasy"], rating: 3.8 },
-  { title: "The Village Uncle", author: "Nathaniel Hawthorne", year: 1835, description: "A story about village life and tradition.", genres: ["classic", "halloween", "historical fiction"], rating: 3.7 },
-  { title: "The Old Apple Dealer", author: "Nathaniel Hawthorne", year: 1837, description: "A story about an old man and his apples.", genres: ["classic", "halloween", "historical fiction"], rating: 3.6 },
-  { title: "The Sister Years", author: "Nathaniel Hawthorne", year: 1839, description: "A story about the old and new year.", genres: ["classic", "halloween", "allegory"], rating: 3.7 },
-  { title: "Snowflakes", author: "Nathaniel Hawthorne", year: 1838, description: "A story about winter and imagination.", genres: ["classic", "halloween", "fantasy"], rating: 3.6 },
-  { title: "The Christmas Banquet", author: "Nathaniel Hawthorne", year: 1844, description: "A story about a Christmas dinner for the miserable.", genres: ["classic", "christmas", "allegory"], rating: 3.8 },
-  { title: "The New Adam and Eve", author: "Nathaniel Hawthorne", year: 1843, description: "A story about Adam and Eve exploring modern Boston.", genres: ["classic", "halloween", "fantasy"], rating: 3.7 },
-  { title: "The Hall of Fantasy", author: "Nathaniel Hawthorne", year: 1843, description: "A story about a hall where dreams come true.", genres: ["classic", "halloween", "fantasy"], rating: 3.8 },
-  { title: "The Procession of Life", author: "Nathaniel Hawthorne", year: 1843, description: "A story about the different stages of life.", genres: ["classic", "halloween", "allegory"], rating: 3.7 },
-  { title: "The Celestial Railroad", author: "Nathaniel Hawthorne", year: 1843, description: "A story about a modern version of Pilgrim's Progress.", genres: ["classic", "halloween", "allegory"], rating: 3.8 },
-  { title: "The Intelligence Office", author: "Nathaniel Hawthorne", year: 1844, description: "A story about an office that grants wishes.", genres: ["classic", "halloween", "fantasy"], rating: 3.7 },
-  { title: "The Artist of the Beautiful", author: "Nathaniel Hawthorne", year: 1844, description: "A story about an artist and his mechanical butterfly.", genres: ["classic", "halloween", "fantasy"], rating: 4.0 },
-  { title: "A Select Party", author: "Nathaniel Hawthorne", year: 1844, description: "A story about a party for imaginary people.", genres: ["classic", "halloween", "fantasy"], rating: 3.8 },
-  { title: "A Book of Autographs", author: "Nathaniel Hawthorne", year: 1844, description: "A story about a book of famous signatures.", genres: ["classic", "halloween", "mystery"], rating: 3.7 },
-  { title: "The Old Manse", author: "Nathaniel Hawthorne", year: 1846, description: "A story about Hawthorne's home in Concord.", genres: ["classic", "halloween", "memoir"], rating: 3.8 },
-  
-  // Women-Focused & Female-Authored Books
-  // Contemporary Women's Fiction
-  { title: "The Seven Husbands of Evelyn Hugo", author: "Taylor Jenkins Reid", year: 2017, description: "A novel about an aging Hollywood starlet revealing her secrets.", genres: ["contemporary", "romance", "historical fiction"], rating: 4.3 },
-  { title: "Daisy Jones & The Six", author: "Taylor Jenkins Reid", year: 2019, description: "A fictional oral history of a 1970s rock band.", genres: ["contemporary", "historical fiction", "music"], rating: 4.2 },
-  { title: "Malibu Rising", author: "Taylor Jenkins Reid", year: 2021, description: "A novel about four famous siblings throwing an epic party.", genres: ["contemporary", "family", "drama"], rating: 4.1 },
-  { title: "Carrie Soto Is Back", author: "Taylor Jenkins Reid", year: 2022, description: "A retired tennis champion makes a comeback.", genres: ["contemporary", "sports", "drama"], rating: 4.0 },
-  { title: "The Midnight Library", author: "Matt Haig", year: 2020, description: "A library between life and death where each book represents a different life.", genres: ["contemporary", "fantasy", "philosophy"], rating: 4.1 },
-  { title: "The Invisible Life of Addie LaRue", author: "V.E. Schwab", year: 2020, description: "A woman makes a Faustian bargain to live forever but is cursed to be forgotten.", genres: ["fantasy", "romance", "historical fiction"], rating: 4.2 },
-  { title: "The House in the Cerulean Sea", author: "TJ Klune", year: 2020, description: "A magical island orphanage and the caseworker who discovers its secrets.", genres: ["fantasy", "romance", "lgbtq"], rating: 4.3 },
-  { title: "Under the Whispering Door", author: "TJ Klune", year: 2021, description: "A queer love story about a man who dies and finds himself at a tea shop.", genres: ["fantasy", "romance", "lgbtq"], rating: 4.1 },
-  { title: "The Paper Palace", author: "Miranda Cowley Heller", year: 2021, description: "A woman's life-changing decision over 24 hours.", genres: ["contemporary", "romance", "family"], rating: 4.0 },
-  { title: "Lessons in Chemistry", author: "Bonnie Garmus", year: 2022, description: "A female scientist becomes a cooking show host in the 1960s.", genres: ["contemporary", "historical fiction", "feminism"], rating: 4.1 },
-  { title: "Tomorrow, and Tomorrow, and Tomorrow", author: "Gabrielle Zevin", year: 2022, description: "A novel about friendship and video games.", genres: ["contemporary", "friendship", "technology"], rating: 4.2 },
-  { title: "Remarkably Bright Creatures", author: "Shelby Van Pelt", year: 2022, description: "A widow forms an unlikely friendship with a giant Pacific octopus.", genres: ["contemporary", "friendship", "mystery"], rating: 4.0 },
-  { title: "The Maid", author: "Nita Prose", year: 2022, description: "A hotel maid discovers a dead body and becomes a suspect.", genres: ["mystery", "contemporary", "neurodiversity"], rating: 4.1 },
-  { title: "The Dictionary of Lost Words", author: "Pip Williams", year: 2020, description: "A novel about the creation of the Oxford English Dictionary from a woman's perspective.", genres: ["historical fiction", "feminism", "language"], rating: 4.2 },
-  { title: "The Four Winds", author: "Kristin Hannah", year: 2021, description: "A woman's struggle during the Great Depression.", genres: ["historical fiction", "family", "drama"], rating: 4.1 },
-  { title: "The Great Alone", author: "Kristin Hannah", year: 2018, description: "A family moves to Alaska to start over.", genres: ["contemporary", "family", "adventure"], rating: 4.2 },
-  { title: "The Nightingale", author: "Kristin Hannah", year: 2015, description: "Two sisters in Nazi-occupied France.", genres: ["historical fiction", "war", "family"], rating: 4.2 },
-  { title: "Firefly Lane", author: "Kristin Hannah", year: 2008, description: "A friendship spanning three decades.", genres: ["contemporary", "friendship", "family"], rating: 4.0 },
-  { title: "Fly Away", author: "Kristin Hannah", year: 2013, description: "The sequel to Firefly Lane about healing and forgiveness.", genres: ["contemporary", "family", "healing"], rating: 3.9 },
-  { title: "The Vanishing Half", author: "Brit Bennett", year: 2020, description: "Twin sisters choose different racial identities.", genres: ["contemporary", "family", "race"], rating: 4.2 },
-  { title: "The Mothers", author: "Brit Bennett", year: 2016, description: "A novel about community, love, and the choices that define us.", genres: ["contemporary", "family", "community"], rating: 4.0 },
-  { title: "Such a Fun Age", author: "Kiley Reid", year: 2019, description: "A novel about race and privilege.", genres: ["contemporary", "race", "class"], rating: 4.1 },
-  { title: "Come and Get It", author: "Kiley Reid", year: 2024, description: "A novel about money, power, and desire.", genres: ["contemporary", "satire", "class"], rating: 4.0 },
-  { title: "Normal People", author: "Sally Rooney", year: 2018, description: "A novel about the relationship between two teenagers.", genres: ["contemporary", "romance", "coming-of-age"], rating: 4.0 },
-  { title: "Conversations with Friends", author: "Sally Rooney", year: 2017, description: "A novel about friendship and love.", genres: ["contemporary", "friendship", "romance"], rating: 3.9 },
-  { title: "Beautiful World, Where Are You", author: "Sally Rooney", year: 2021, description: "A novel about love and friendship in the modern world.", genres: ["contemporary", "romance", "friendship"], rating: 3.8 },
-  { title: "Klara and the Sun", author: "Kazuo Ishiguro", year: 2021, description: "A novel about an artificial friend.", genres: ["contemporary", "sci-fi", "philosophy"], rating: 4.0 },
-  { title: "The Remains of the Day", author: "Kazuo Ishiguro", year: 1989, description: "A butler reflects on his life and service.", genres: ["historical fiction", "romance", "class"], rating: 4.3 },
-  { title: "Never Let Me Go", author: "Kazuo Ishiguro", year: 2005, description: "A novel about love and loss in a dystopian world.", genres: ["sci-fi", "romance", "dystopian"], rating: 4.2 },
-  { title: "The Buried Giant", author: "Kazuo Ishiguro", year: 2015, description: "A novel about memory and love in post-Arthurian Britain.", genres: ["fantasy", "romance", "historical fiction"], rating: 3.9 },
-  { title: "When We Were Orphans", author: "Kazuo Ishiguro", year: 2000, description: "A detective searches for his missing parents in Shanghai.", genres: ["mystery", "historical fiction", "family"], rating: 3.8 },
-  { title: "The Unconsoled", author: "Kazuo Ishiguro", year: 1995, description: "A pianist arrives in a European city for a concert.", genres: ["contemporary", "surreal", "music"], rating: 3.7 },
-  { title: "A Pale View of Hills", author: "Kazuo Ishiguro", year: 1982, description: "A Japanese woman living in England reflects on her past.", genres: ["contemporary", "family", "memory"], rating: 3.9 },
-  { title: "An Artist of the Floating World", author: "Kazuo Ishiguro", year: 1986, description: "A Japanese artist reflects on his life after WWII.", genres: ["historical fiction", "art", "memory"], rating: 4.0 },
-  { title: "The Personal Librarian", author: "Marie Benedict", year: 2021, description: "The remarkable story of Belle da Costa Greene.", genres: ["historical fiction", "biography", "race"], rating: 4.1 },
-  { title: "The Other Einstein", author: "Marie Benedict", year: 2016, description: "A novel about Albert Einstein's first wife.", genres: ["historical fiction", "biography", "science"], rating: 3.9 },
-  { title: "Carnegie's Maid", author: "Marie Benedict", year: 2018, description: "A novel about a maid who becomes Andrew Carnegie's confidante.", genres: ["historical fiction", "romance", "class"], rating: 3.8 },
-  { title: "Lady Clementine", author: "Marie Benedict", year: 2020, description: "A novel about Winston Churchill's wife.", genres: ["historical fiction", "biography", "politics"], rating: 3.9 },
-  { title: "The Mystery of Mrs. Christie", author: "Marie Benedict", year: 2020, description: "A novel about Agatha Christie's mysterious disappearance.", genres: ["historical fiction", "mystery", "biography"], rating: 3.8 },
-  { title: "Her Hidden Genius", author: "Marie Benedict", year: 2022, description: "A novel about Rosalind Franklin and the discovery of DNA.", genres: ["historical fiction", "biography", "science"], rating: 4.0 },
-  { title: "The Mitford Affair", author: "Marie Benedict", year: 2023, description: "A novel about the Mitford sisters during WWII.", genres: ["historical fiction", "family", "war"], rating: 3.9 },
-  { title: "The Book Thief", author: "Markus Zusak", year: 2005, description: "A novel set in Nazi Germany narrated by Death.", genres: ["historical fiction", "young adult", "war"], rating: 4.4 },
-  { title: "I Am the Messenger", author: "Markus Zusak", year: 2002, description: "A novel about a taxi driver who receives mysterious messages.", genres: ["contemporary", "mystery", "coming-of-age"], rating: 4.1 },
-  { title: "Bridge of Clay", author: "Markus Zusak", year: 2018, description: "A novel about five brothers and their family's story.", genres: ["contemporary", "family", "coming-of-age"], rating: 3.9 },
-  { title: "The Messenger", author: "Markus Zusak", year: 2002, description: "A novel about a young man who receives mysterious playing cards.", genres: ["contemporary", "mystery", "coming-of-age"], rating: 4.0 },
-  { title: "Fighting Ruben Wolfe", author: "Markus Zusak", year: 2000, description: "A novel about two brothers who become boxers.", genres: ["contemporary", "sports", "family"], rating: 3.8 },
-  { title: "Getting the Girl", author: "Markus Zusak", year: 2001, description: "A novel about love and family.", genres: ["contemporary", "romance", "family"], rating: 3.7 },
-  { title: "The Underdog", author: "Markus Zusak", year: 1999, description: "A novel about a young boy's journey.", genres: ["contemporary", "coming-of-age", "family"], rating: 3.6 },
-  { title: "Educated", author: "Tara Westover", year: 2018, description: "A memoir about growing up in a survivalist family.", genres: ["memoir", "biography", "family"], rating: 4.5 },
-  { title: "Becoming", author: "Michelle Obama", year: 2018, description: "The memoir of the former First Lady.", genres: ["memoir", "biography", "politics"], rating: 4.4 },
-  { title: "The Light We Carry", author: "Michelle Obama", year: 2022, description: "Michelle Obama's guide to overcoming uncertain times.", genres: ["memoir", "self-help", "inspiration"], rating: 4.2 },
-  { title: "Untamed", author: "Glennon Doyle", year: 2020, description: "A memoir about finding your voice and living authentically.", genres: ["memoir", "self-help", "feminism"], rating: 4.1 },
-  { title: "Love Warrior", author: "Glennon Doyle", year: 2016, description: "A memoir about marriage, addiction, and healing.", genres: ["memoir", "family", "healing"], rating: 4.0 },
-  { title: "Carry On, Warrior", author: "Glennon Doyle", year: 2013, description: "A memoir about faith, family, and finding your way.", genres: ["memoir", "faith", "family"], rating: 3.9 },
-  { title: "The Glass Castle", author: "Jeannette Walls", year: 2005, description: "A memoir about growing up with unconventional parents.", genres: ["memoir", "family", "coming-of-age"], rating: 4.3 },
-  { title: "Half Broke Horses", author: "Jeannette Walls", year: 2009, description: "A novel based on the life of the author's grandmother.", genres: ["historical fiction", "family", "western"], rating: 4.1 },
-  { title: "The Silver Star", author: "Jeannette Walls", year: 2013, description: "A novel about two sisters who go to live with their uncle.", genres: ["contemporary", "family", "coming-of-age"], rating: 3.9 },
-  { title: "Hang the Moon", author: "Jeannette Walls", year: 2023, description: "A novel about a young woman in Prohibition-era Virginia.", genres: ["historical fiction", "family", "adventure"], rating: 4.0 },
-  { title: "Wild", author: "Cheryl Strayed", year: 2012, description: "A memoir about hiking the Pacific Crest Trail.", genres: ["memoir", "adventure", "healing"], rating: 4.2 },
-  { title: "Tiny Beautiful Things", author: "Cheryl Strayed", year: 2012, description: "Advice on love and life from Dear Sugar.", genres: ["memoir", "self-help", "advice"], rating: 4.3 },
-  { title: "Brave Enough", author: "Cheryl Strayed", year: 2015, description: "A collection of quotes and wisdom.", genres: ["self-help", "inspiration", "quotes"], rating: 4.0 },
-  { title: "The Best of Me", author: "Cheryl Strayed", year: 2020, description: "Selected essays from the author's career.", genres: ["memoir", "essays", "personal"], rating: 4.1 },
-  { title: "The Year of Magical Thinking", author: "Joan Didion", year: 2005, description: "A memoir about grief and loss.", genres: ["memoir", "grief", "family"], rating: 4.4 },
-  { title: "Blue Nights", author: "Joan Didion", year: 2011, description: "A memoir about aging and the death of her daughter.", genres: ["memoir", "grief", "aging"], rating: 4.2 },
-  { title: "Slouching Towards Bethlehem", author: "Joan Didion", year: 1968, description: "A collection of essays about 1960s America.", genres: ["essays", "journalism", "culture"], rating: 4.3 },
-  { title: "The White Album", author: "Joan Didion", year: 1979, description: "Essays about the 1960s and 1970s.", genres: ["essays", "journalism", "culture"], rating: 4.2 },
-  { title: "Play It As It Lays", author: "Joan Didion", year: 1970, description: "A novel about a woman's breakdown in Hollywood.", genres: ["contemporary", "drama", "hollywood"], rating: 4.1 },
-  { title: "A Book of Common Prayer", author: "Joan Didion", year: 1977, description: "A novel about an American woman in Central America.", genres: ["contemporary", "drama", "politics"], rating: 4.0 },
-  { title: "Democracy", author: "Joan Didion", year: 1984, description: "A novel about politics and power in America.", genres: ["contemporary", "drama", "politics"], rating: 3.9 },
-  { title: "The Last Thing He Wanted", author: "Joan Didion", year: 1996, description: "A novel about a journalist caught in political intrigue.", genres: ["contemporary", "thriller", "politics"], rating: 3.8 },
-  { title: "Where I Was From", author: "Joan Didion", year: 2003, description: "A memoir about California and family history.", genres: ["memoir", "family", "california"], rating: 4.0 },
-  { title: "Political Fictions", author: "Joan Didion", year: 2001, description: "Essays about American politics.", genres: ["essays", "politics", "journalism"], rating: 4.1 },
-  { title: "Fixed Ideas", author: "Joan Didion", year: 2003, description: "Essays about America after 9/11.", genres: ["essays", "politics", "journalism"], rating: 4.0 },
-  { title: "South and West", author: "Joan Didion", year: 2017, description: "Notes from a road trip through the American South.", genres: ["memoir", "travel", "journalism"], rating: 3.9 },
-  { title: "Let Me Tell You What I Mean", author: "Joan Didion", year: 2021, description: "A collection of previously uncollected essays.", genres: ["essays", "journalism", "personal"], rating: 4.0 },
-  { title: "The Woman in Me", author: "Britney Spears", year: 2023, description: "The memoir of pop star Britney Spears.", genres: ["memoir", "biography", "music"], rating: 4.1 },
-  { title: "Spare", author: "Prince Harry", year: 2023, description: "The memoir of Prince Harry.", genres: ["memoir", "biography", "royalty"], rating: 4.0 },
-  { title: "Finding Me", author: "Viola Davis", year: 2022, description: "The memoir of actress Viola Davis.", genres: ["memoir", "biography", "acting"], rating: 4.3 },
-  { title: "Just as I Am", author: "Cicely Tyson", year: 2021, description: "The memoir of actress Cicely Tyson.", genres: ["memoir", "biography", "acting"], rating: 4.2 },
-  { title: "The Beauty in Breaking", author: "Michele Harper", year: 2020, description: "A memoir by an emergency room physician.", genres: ["memoir", "medicine", "healing"], rating: 4.1 },
-  { title: "Know My Name", author: "Chanel Miller", year: 2019, description: "A memoir about sexual assault and healing.", genres: ["memoir", "feminism", "healing"], rating: 4.4 },
-  { title: "In the Dream House", author: "Carmen Maria Machado", year: 2019, description: "A memoir about domestic abuse in a same-sex relationship.", genres: ["memoir", "lgbtq", "healing"], rating: 4.3 },
-  { title: "Her Body and Other Parties", author: "Carmen Maria Machado", year: 2017, description: "A collection of short stories blending horror and feminism.", genres: ["short stories", "horror", "feminism"], rating: 4.2 },
-  { title: "The Lowland", author: "Jhumpa Lahiri", year: 2013, description: "A novel about two brothers in India and America.", genres: ["contemporary", "family", "immigration"], rating: 4.1 },
-  { title: "Unaccustomed Earth", author: "Jhumpa Lahiri", year: 2008, description: "A collection of short stories about Bengali-Americans.", genres: ["short stories", "immigration", "family"], rating: 4.2 },
-  { title: "The Namesake", author: "Jhumpa Lahiri", year: 2003, description: "A novel about an Indian-American family.", genres: ["contemporary", "family", "immigration"], rating: 4.3 },
-  { title: "Whereabouts", author: "Jhumpa Lahiri", year: 2021, description: "A novel about a woman's solitary life in an Italian city.", genres: ["contemporary", "solitude", "reflection"], rating: 4.0 },
-  { title: "Roman Stories", author: "Jhumpa Lahiri", year: 2023, description: "A collection of short stories set in Rome.", genres: ["short stories", "italy", "immigration"], rating: 4.1 },
-  { title: "The House of the Spirits", author: "Isabel Allende", year: 1982, description: "A magical realist novel about a Chilean family.", genres: ["magical realism", "family", "chile"], rating: 4.4 },
-  { title: "Eva Luna", author: "Isabel Allende", year: 1987, description: "A novel about a storyteller in Latin America.", genres: ["magical realism", "storytelling", "latin america"], rating: 4.2 },
-  { title: "Daughter of Fortune", author: "Isabel Allende", year: 1999, description: "A novel about a Chilean woman during the California Gold Rush.", genres: ["historical fiction", "adventure", "chile"], rating: 4.1 },
-  { title: "Portrait in Sepia", author: "Isabel Allende", year: 2000, description: "A novel about a woman's search for her identity.", genres: ["historical fiction", "family", "chile"], rating: 4.0 },
-  { title: "Zorro", author: "Isabel Allende", year: 2005, description: "A novel about the legendary masked hero.", genres: ["historical fiction", "adventure", "california"], rating: 3.9 },
-  { title: "Inés of My Soul", author: "Isabel Allende", year: 2006, description: "A novel about the Spanish conquest of Chile.", genres: ["historical fiction", "adventure", "chile"], rating: 4.0 },
-  { title: "Island Beneath the Sea", author: "Isabel Allende", year: 2009, description: "A novel about slavery and revolution in Haiti.", genres: ["historical fiction", "slavery", "haiti"], rating: 4.1 },
-  { title: "Maya's Notebook", author: "Isabel Allende", year: 2011, description: "A novel about a troubled teenager finding refuge in Chile.", genres: ["contemporary", "coming-of-age", "chile"], rating: 3.9 },
-  { title: "Ripper", author: "Isabel Allende", year: 2014, description: "A mystery novel about a teenage detective.", genres: ["mystery", "young adult", "chile"], rating: 3.8 },
-  { title: "The Japanese Lover", author: "Isabel Allende", year: 2015, description: "A novel about love and family across generations.", genres: ["contemporary", "romance", "family"], rating: 4.0 },
-  { title: "In the Midst of Winter", author: "Isabel Allende", year: 2017, description: "A novel about three people brought together by a car accident.", genres: ["contemporary", "romance", "family"], rating: 3.9 },
-  { title: "A Long Petal of the Sea", author: "Isabel Allende", year: 2019, description: "A novel about Spanish refugees in Chile.", genres: ["historical fiction", "immigration", "chile"], rating: 4.1 },
-  { title: "Violeta", author: "Isabel Allende", year: 2022, description: "A novel about a woman's life spanning a century of change.", genres: ["historical fiction", "family", "chile"], rating: 4.0 },
-  { title: "The Wind Knows My Name", author: "Isabel Allende", year: 2023, description: "A novel about immigration and family across time.", genres: ["contemporary", "immigration", "family"], rating: 4.1 },
-  { title: "The Handmaid's Tale", author: "Margaret Atwood", year: 1985, description: "A dystopian novel about a woman's struggle in a totalitarian society.", genres: ["dystopian", "feminism", "sci-fi"], rating: 4.4 },
-  { title: "The Testaments", author: "Margaret Atwood", year: 2019, description: "The sequel to The Handmaid's Tale.", genres: ["dystopian", "feminism", "sci-fi"], rating: 4.2 },
-  { title: "Alias Grace", author: "Margaret Atwood", year: 1996, description: "A novel about a 19th-century murderess.", genres: ["historical fiction", "mystery", "feminism"], rating: 4.1 },
-  { title: "The Blind Assassin", author: "Margaret Atwood", year: 2000, description: "A novel about two sisters and a mysterious death.", genres: ["contemporary", "mystery", "family"], rating: 4.3 },
-  { title: "Oryx and Crake", author: "Margaret Atwood", year: 2003, description: "A dystopian novel about genetic engineering.", genres: ["dystopian", "sci-fi", "environmental"], rating: 4.2 },
-  { title: "The Year of the Flood", author: "Margaret Atwood", year: 2009, description: "A dystopian novel about environmental collapse.", genres: ["dystopian", "sci-fi", "environmental"], rating: 4.1 },
-  { title: "MaddAddam", author: "Margaret Atwood", year: 2013, description: "The final book in the MaddAddam trilogy.", genres: ["dystopian", "sci-fi", "environmental"], rating: 4.0 },
-  { title: "The Robber Bride", author: "Margaret Atwood", year: 1993, description: "A novel about three women and their nemesis.", genres: ["contemporary", "friendship", "feminism"], rating: 4.1 },
-  { title: "Cat's Eye", author: "Margaret Atwood", year: 1988, description: "A novel about an artist reflecting on her childhood.", genres: ["contemporary", "coming-of-age", "art"], rating: 4.2 },
-  { title: "The Edible Woman", author: "Margaret Atwood", year: 1969, description: "A novel about a woman's rebellion against societal expectations.", genres: ["contemporary", "feminism", "satire"], rating: 4.0 },
-  { title: "Surfacing", author: "Margaret Atwood", year: 1972, description: "A novel about a woman's journey into the wilderness.", genres: ["contemporary", "feminism", "nature"], rating: 3.9 },
-  { title: "Lady Oracle", author: "Margaret Atwood", year: 1976, description: "A novel about a writer who fakes her own death.", genres: ["contemporary", "feminism", "satire"], rating: 3.8 },
-  { title: "Life Before Man", author: "Margaret Atwood", year: 1979, description: "A novel about relationships and infidelity.", genres: ["contemporary", "romance", "family"], rating: 3.9 },
-  { title: "Bodily Harm", author: "Margaret Atwood", year: 1981, description: "A novel about a journalist in the Caribbean.", genres: ["contemporary", "politics", "feminism"], rating: 3.8 },
-  { title: "The Penelopiad", author: "Margaret Atwood", year: 2005, description: "A retelling of The Odyssey from Penelope's perspective.", genres: ["mythology", "feminism", "retelling"], rating: 4.1 },
-  { title: "The Heart Goes Last", author: "Margaret Atwood", year: 2015, description: "A dystopian novel about a couple in a social experiment.", genres: ["dystopian", "sci-fi", "romance"], rating: 3.9 },
-  { title: "Hag-Seed", author: "Margaret Atwood", year: 2016, description: "A retelling of The Tempest.", genres: ["retelling", "shakespeare", "contemporary"], rating: 4.0 },
-  { title: "The Stone Mattress", author: "Margaret Atwood", year: 2014, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 4.1 },
-  { title: "Dancing Girls", author: "Margaret Atwood", year: 1977, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 3.9 },
-  { title: "Bluebeard's Egg", author: "Margaret Atwood", year: 1983, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 4.0 },
-  { title: "Wilderness Tips", author: "Margaret Atwood", year: 1991, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 4.1 },
-  { title: "Good Bones and Simple Murders", author: "Margaret Atwood", year: 1992, description: "A collection of short stories and essays.", genres: ["short stories", "essays", "feminism"], rating: 4.0 },
-  { title: "The Tent", author: "Margaret Atwood", year: 2006, description: "A collection of short stories and essays.", genres: ["short stories", "essays", "feminism"], rating: 3.9 },
-  { title: "Moral Disorder", author: "Margaret Atwood", year: 2006, description: "A collection of linked short stories.", genres: ["short stories", "contemporary", "family"], rating: 4.0 },
-  { title: "Old Babes in the Wood", author: "Margaret Atwood", year: 2023, description: "A collection of short stories about aging and relationships.", genres: ["short stories", "aging", "relationships"], rating: 4.1 },
-  { title: "The Color Purple", author: "Alice Walker", year: 1982, description: "A novel about African American women in the early 1900s.", genres: ["historical fiction", "feminism", "race"], rating: 4.5 },
-  { title: "Meridian", author: "Alice Walker", year: 1976, description: "A novel about a woman's involvement in the Civil Rights Movement.", genres: ["historical fiction", "feminism", "civil rights"], rating: 4.2 },
-  { title: "The Third Life of Grange Copeland", author: "Alice Walker", year: 1970, description: "A novel about three generations of an African American family.", genres: ["historical fiction", "family", "race"], rating: 4.1 },
-  { title: "Possessing the Secret of Joy", author: "Alice Walker", year: 1992, description: "A novel about female genital mutilation.", genres: ["contemporary", "feminism", "africa"], rating: 4.0 },
-  { title: "By the Light of My Father's Smile", author: "Alice Walker", year: 1998, description: "A novel about sexuality and spirituality.", genres: ["contemporary", "feminism", "spirituality"], rating: 3.9 },
-  { title: "The Way Forward Is with a Broken Heart", author: "Alice Walker", year: 2000, description: "A collection of short stories about love and loss.", genres: ["short stories", "romance", "healing"], rating: 4.0 },
-  { title: "Now Is the Time to Open Your Heart", author: "Alice Walker", year: 2004, description: "A novel about a woman's spiritual journey.", genres: ["contemporary", "spirituality", "feminism"], rating: 3.8 },
-  { title: "We Are the Ones We Have Been Waiting For", author: "Alice Walker", year: 2006, description: "A collection of essays about activism and spirituality.", genres: ["essays", "activism", "spirituality"], rating: 4.1 },
-  { title: "The Chicken Chronicles", author: "Alice Walker", year: 2011, description: "A memoir about raising chickens.", genres: ["memoir", "nature", "healing"], rating: 3.9 },
-  { title: "The Cushion in the Road", author: "Alice Walker", year: 2013, description: "A collection of essays about meditation and activism.", genres: ["essays", "meditation", "activism"], rating: 4.0 },
-  { title: "Taking the Arrow Out of the Heart", author: "Alice Walker", year: 2018, description: "A collection of poems about healing and activism.", genres: ["poetry", "healing", "activism"], rating: 4.1 },
-  { title: "Gathering Blossoms Under Fire", author: "Alice Walker", year: 2022, description: "A collection of journal entries from 1965-2000.", genres: ["memoir", "journal", "activism"], rating: 4.0 },
-  { title: "The Temple of My Familiar", author: "Alice Walker", year: 1989, description: "A novel about African American women and their ancestors.", genres: ["contemporary", "feminism", "spirituality"], rating: 4.1 },
-  { title: "To Hell with Dying", author: "Alice Walker", year: 1988, description: "A children's book about love and death.", genres: ["children", "family", "death"], rating: 4.0 },
-  { title: "Finding the Green Stone", author: "Alice Walker", year: 1991, description: "A children's book about self-esteem and healing.", genres: ["children", "self-help", "healing"], rating: 3.9 },
-  { title: "Langston Hughes: American Poet", author: "Alice Walker", year: 1974, description: "A biography of Langston Hughes for children.", genres: ["biography", "children", "poetry"], rating: 4.0 },
-  { title: "There Is a Flower at the Tip of My Nose Smelling Me", author: "Alice Walker", year: 2006, description: "A children's book about nature and spirituality.", genres: ["children", "nature", "spirituality"], rating: 3.8 },
-  { title: "Why War Is Never a Good Idea", author: "Alice Walker", year: 2007, description: "A children's book about peace and war.", genres: ["children", "peace", "activism"], rating: 4.0 },
-  { title: "Sweet People Are Everywhere", author: "Alice Walker", year: 2021, description: "A children's book about kindness and connection.", genres: ["children", "kindness", "connection"], rating: 4.1 },
-  { title: "The Beauty in Breaking", author: "Michele Harper", year: 2020, description: "A memoir by an emergency room physician.", genres: ["memoir", "medicine", "healing"], rating: 4.1 },
-  { title: "Know My Name", author: "Chanel Miller", year: 2019, description: "A memoir about sexual assault and healing.", genres: ["memoir", "feminism", "healing"], rating: 4.4 },
-  { title: "In the Dream House", author: "Carmen Maria Machado", year: 2019, description: "A memoir about domestic abuse in a same-sex relationship.", genres: ["memoir", "lgbtq", "healing"], rating: 4.3 },
-  { title: "Her Body and Other Parties", author: "Carmen Maria Machado", year: 2017, description: "A collection of short stories blending horror and feminism.", genres: ["short stories", "horror", "feminism"], rating: 4.2 },
-  { title: "The Lowland", author: "Jhumpa Lahiri", year: 2013, description: "A novel about two brothers in India and America.", genres: ["contemporary", "family", "immigration"], rating: 4.1 },
-  { title: "Unaccustomed Earth", author: "Jhumpa Lahiri", year: 2008, description: "A collection of short stories about Bengali-Americans.", genres: ["short stories", "immigration", "family"], rating: 4.2 },
-  { title: "The Namesake", author: "Jhumpa Lahiri", year: 2003, description: "A novel about an Indian-American family.", genres: ["contemporary", "family", "immigration"], rating: 4.3 },
-  { title: "Whereabouts", author: "Jhumpa Lahiri", year: 2021, description: "A novel about a woman's solitary life in an Italian city.", genres: ["contemporary", "solitude", "reflection"], rating: 4.0 },
-  { title: "Roman Stories", author: "Jhumpa Lahiri", year: 2023, description: "A collection of short stories set in Rome.", genres: ["short stories", "italy", "immigration"], rating: 4.1 },
-  { title: "The House of the Spirits", author: "Isabel Allende", year: 1982, description: "A magical realist novel about a Chilean family.", genres: ["magical realism", "family", "chile"], rating: 4.4 },
-  { title: "Eva Luna", author: "Isabel Allende", year: 1987, description: "A novel about a storyteller in Latin America.", genres: ["magical realism", "storytelling", "latin america"], rating: 4.2 },
-  { title: "Daughter of Fortune", author: "Isabel Allende", year: 1999, description: "A novel about a Chilean woman during the California Gold Rush.", genres: ["historical fiction", "adventure", "chile"], rating: 4.1 },
-  { title: "Portrait in Sepia", author: "Isabel Allende", year: 2000, description: "A novel about a woman's search for her identity.", genres: ["historical fiction", "family", "chile"], rating: 4.0 },
-  { title: "Zorro", author: "Isabel Allende", year: 2005, description: "A novel about the legendary masked hero.", genres: ["historical fiction", "adventure", "california"], rating: 3.9 },
-  { title: "Inés of My Soul", author: "Isabel Allende", year: 2006, description: "A novel about the Spanish conquest of Chile.", genres: ["historical fiction", "adventure", "chile"], rating: 4.0 },
-  { title: "Island Beneath the Sea", author: "Isabel Allende", year: 2009, description: "A novel about slavery and revolution in Haiti.", genres: ["historical fiction", "slavery", "haiti"], rating: 4.1 },
-  { title: "Maya's Notebook", author: "Isabel Allende", year: 2011, description: "A novel about a troubled teenager finding refuge in Chile.", genres: ["contemporary", "coming-of-age", "chile"], rating: 3.9 },
-  { title: "Ripper", author: "Isabel Allende", year: 2014, description: "A mystery novel about a teenage detective.", genres: ["mystery", "young adult", "chile"], rating: 3.8 },
-  { title: "The Japanese Lover", author: "Isabel Allende", year: 2015, description: "A novel about love and family across generations.", genres: ["contemporary", "romance", "family"], rating: 4.0 },
-  { title: "In the Midst of Winter", author: "Isabel Allende", year: 2017, description: "A novel about three people brought together by a car accident.", genres: ["contemporary", "romance", "family"], rating: 3.9 },
-  { title: "A Long Petal of the Sea", author: "Isabel Allende", year: 2019, description: "A novel about Spanish refugees in Chile.", genres: ["historical fiction", "immigration", "chile"], rating: 4.1 },
-  { title: "Violeta", author: "Isabel Allende", year: 2022, description: "A novel about a woman's life spanning a century of change.", genres: ["historical fiction", "family", "chile"], rating: 4.0 },
-  { title: "The Wind Knows My Name", author: "Isabel Allende", year: 2023, description: "A novel about immigration and family across time.", genres: ["contemporary", "immigration", "family"], rating: 4.1 },
-  { title: "The Handmaid's Tale", author: "Margaret Atwood", year: 1985, description: "A dystopian novel about a woman's struggle in a totalitarian society.", genres: ["dystopian", "feminism", "sci-fi"], rating: 4.4 },
-  { title: "The Testaments", author: "Margaret Atwood", year: 2019, description: "The sequel to The Handmaid's Tale.", genres: ["dystopian", "feminism", "sci-fi"], rating: 4.2 },
-  { title: "Alias Grace", author: "Margaret Atwood", year: 1996, description: "A novel about a 19th-century murderess.", genres: ["historical fiction", "mystery", "feminism"], rating: 4.1 },
-  { title: "The Blind Assassin", author: "Margaret Atwood", year: 2000, description: "A novel about two sisters and a mysterious death.", genres: ["contemporary", "mystery", "family"], rating: 4.3 },
-  { title: "Oryx and Crake", author: "Margaret Atwood", year: 2003, description: "A dystopian novel about genetic engineering.", genres: ["dystopian", "sci-fi", "environmental"], rating: 4.2 },
-  { title: "The Year of the Flood", author: "Margaret Atwood", year: 2009, description: "A dystopian novel about environmental collapse.", genres: ["dystopian", "sci-fi", "environmental"], rating: 4.1 },
-  { title: "MaddAddam", author: "Margaret Atwood", year: 2013, description: "The final book in the MaddAddam trilogy.", genres: ["dystopian", "sci-fi", "environmental"], rating: 4.0 },
-  { title: "The Robber Bride", author: "Margaret Atwood", year: 1993, description: "A novel about three women and their nemesis.", genres: ["contemporary", "friendship", "feminism"], rating: 4.1 },
-  { title: "Cat's Eye", author: "Margaret Atwood", year: 1988, description: "A novel about an artist reflecting on her childhood.", genres: ["contemporary", "coming-of-age", "art"], rating: 4.2 },
-  { title: "The Edible Woman", author: "Margaret Atwood", year: 1969, description: "A novel about a woman's rebellion against societal expectations.", genres: ["contemporary", "feminism", "satire"], rating: 4.0 },
-  { title: "Surfacing", author: "Margaret Atwood", year: 1972, description: "A novel about a woman's journey into the wilderness.", genres: ["contemporary", "feminism", "nature"], rating: 3.9 },
-  { title: "Lady Oracle", author: "Margaret Atwood", year: 1976, description: "A novel about a writer who fakes her own death.", genres: ["contemporary", "feminism", "satire"], rating: 3.8 },
-  { title: "Life Before Man", author: "Margaret Atwood", year: 1979, description: "A novel about relationships and infidelity.", genres: ["contemporary", "romance", "family"], rating: 3.9 },
-  { title: "Bodily Harm", author: "Margaret Atwood", year: 1981, description: "A novel about a journalist in the Caribbean.", genres: ["contemporary", "politics", "feminism"], rating: 3.8 },
-  { title: "The Penelopiad", author: "Margaret Atwood", year: 2005, description: "A retelling of The Odyssey from Penelope's perspective.", genres: ["mythology", "feminism", "retelling"], rating: 4.1 },
-  { title: "The Heart Goes Last", author: "Margaret Atwood", year: 2015, description: "A dystopian novel about a couple in a social experiment.", genres: ["dystopian", "sci-fi", "romance"], rating: 3.9 },
-  { title: "Hag-Seed", author: "Margaret Atwood", year: 2016, description: "A retelling of The Tempest.", genres: ["retelling", "shakespeare", "contemporary"], rating: 4.0 },
-  { title: "The Stone Mattress", author: "Margaret Atwood", year: 2014, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 4.1 },
-  { title: "Dancing Girls", author: "Margaret Atwood", year: 1977, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 3.9 },
-  { title: "Bluebeard's Egg", author: "Margaret Atwood", year: 1983, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 4.0 },
-  { title: "Wilderness Tips", author: "Margaret Atwood", year: 1991, description: "A collection of short stories.", genres: ["short stories", "contemporary", "feminism"], rating: 4.1 },
-  { title: "Good Bones and Simple Murders", author: "Margaret Atwood", year: 1992, description: "A collection of short stories and essays.", genres: ["short stories", "essays", "feminism"], rating: 4.0 },
-  { title: "The Tent", author: "Margaret Atwood", year: 2006, description: "A collection of short stories and essays.", genres: ["short stories", "essays", "feminism"], rating: 3.9 },
-  { title: "Moral Disorder", author: "Margaret Atwood", year: 2006, description: "A collection of linked short stories.", genres: ["short stories", "contemporary", "family"], rating: 4.0 },
-  { title: "Old Babes in the Wood", author: "Margaret Atwood", year: 2023, description: "A collection of short stories about aging and relationships.", genres: ["short stories", "aging", "relationships"], rating: 4.1 },
-  { title: "The Color Purple", author: "Alice Walker", year: 1982, description: "A novel about African American women in the early 1900s.", genres: ["historical fiction", "feminism", "race"], rating: 4.5 },
-  { title: "Meridian", author: "Alice Walker", year: 1976, description: "A novel about a woman's involvement in the Civil Rights Movement.", genres: ["historical fiction", "feminism", "civil rights"], rating: 4.2 },
-  { title: "The Third Life of Grange Copeland", author: "Alice Walker", year: 1970, description: "A novel about three generations of an African American family.", genres: ["historical fiction", "family", "race"], rating: 4.1 },
-  { title: "Possessing the Secret of Joy", author: "Alice Walker", year: 1992, description: "A novel about female genital mutilation.", genres: ["contemporary", "feminism", "africa"], rating: 4.0 },
-  { title: "By the Light of My Father's Smile", author: "Alice Walker", year: 1998, description: "A novel about sexuality and spirituality.", genres: ["contemporary", "feminism", "spirituality"], rating: 3.9 },
-  { title: "The Way Forward Is with a Broken Heart", author: "Alice Walker", year: 2000, description: "A collection of short stories about love and loss.", genres: ["short stories", "romance", "healing"], rating: 4.0 },
-  { title: "Now Is the Time to Open Your Heart", author: "Alice Walker", year: 2004, description: "A novel about a woman's spiritual journey.", genres: ["contemporary", "spirituality", "feminism"], rating: 3.8 },
-  { title: "We Are the Ones We Have Been Waiting For", author: "Alice Walker", year: 2006, description: "A collection of essays about activism and spirituality.", genres: ["essays", "activism", "spirituality"], rating: 4.1 },
-  { title: "The Chicken Chronicles", author: "Alice Walker", year: 2011, description: "A memoir about raising chickens.", genres: ["memoir", "nature", "healing"], rating: 3.9 },
-  { title: "The Cushion in the Road", author: "Alice Walker", year: 2013, description: "A collection of essays about meditation and activism.", genres: ["essays", "meditation", "activism"], rating: 4.0 },
-  { title: "Taking the Arrow Out of the Heart", author: "Alice Walker", year: 2018, description: "A collection of poems about healing and activism.", genres: ["poetry", "healing", "activism"], rating: 4.1 },
-  { title: "Gathering Blossoms Under Fire", author: "Alice Walker", year: 2022, description: "A collection of journal entries from 1965-2000.", genres: ["memoir", "journal", "activism"], rating: 4.0 },
-  { title: "The Temple of My Familiar", author: "Alice Walker", year: 1989, description: "A novel about African American women and their ancestors.", genres: ["contemporary", "feminism", "spirituality"], rating: 4.1 },
-  { title: "To Hell with Dying", author: "Alice Walker", year: 1988, description: "A children's book about love and death.", genres: ["children", "family", "death"], rating: 4.0 },
-  { title: "Finding the Green Stone", author: "Alice Walker", year: 1991, description: "A children's book about self-esteem and healing.", genres: ["children", "self-help", "healing"], rating: 3.9 },
-  { title: "Langston Hughes: American Poet", author: "Alice Walker", year: 1974, description: "A biography of Langston Hughes for children.", genres: ["biography", "children", "poetry"], rating: 4.0 },
-  { title: "There Is a Flower at the Tip of My Nose Smelling Me", author: "Alice Walker", year: 2006, description: "A children's book about nature and spirituality.", genres: ["children", "nature", "spirituality"], rating: 3.8 },
-  { title: "Why War Is Never a Good Idea", author: "Alice Walker", year: 2007, description: "A children's book about peace and war.", genres: ["children", "peace", "activism"], rating: 4.0 },
-    { title: "Sweet People Are Everywhere", author: "Alice Walker", year: 2021, description: "A children's book about kindness and connection.", genres: ["children", "kindness", "connection"], rating: 4.1 },
-  { title: "Mama Day", author: "Gloria Naylor", year: 1988, description: "A novel blending realism and magical realism.", genres: ["contemporary", "magical realism", "family"], rating: 4.1 },
-  { title: "Bailey's Cafe", author: "Gloria Naylor", year: 1992, description: "A novel about a magical cafe and its patrons.", genres: ["contemporary", "magical realism", "community"], rating: 4.0 },
-  { title: "The Men of Brewster Place", author: "Gloria Naylor", year: 1998, description: "A novel about the men of the same housing project.", genres: ["contemporary", "masculinity", "community"], rating: 3.9 },
-  { title: "1996", author: "Gloria Naylor", year: 2005, description: "A novel about the year 1996 and its significance.", genres: ["contemporary", "history", "reflection"], rating: 3.8 },
-  { title: "Kindred", author: "Octavia Butler", year: 1979, description: "A science fiction novel about a black woman who travels back to slavery times.", genres: ["sci-fi", "historical fiction", "race"], rating: 4.4 },
-  { title: "Parable of the Sower", author: "Octavia Butler", year: 1993, description: "A dystopian novel about a young woman's journey.", genres: ["dystopian", "sci-fi", "feminism"], rating: 4.3 },
-  { title: "Parable of the Talents", author: "Octavia Butler", year: 1998, description: "The sequel to Parable of the Sower.", genres: ["dystopian", "sci-fi", "feminism"], rating: 4.2 },
-  { title: "Wild Seed", author: "Octavia Butler", year: 1980, description: "A science fiction novel about immortals.", genres: ["sci-fi", "fantasy", "romance"], rating: 4.1 },
-  { title: "Mind of My Mind", author: "Octavia Butler", year: 1977, description: "A science fiction novel about telepathy.", genres: ["sci-fi", "fantasy", "family"], rating: 4.0 },
-  { title: "Clay's Ark", author: "Octavia Butler", year: 1984, description: "A science fiction novel about an alien disease.", genres: ["sci-fi", "horror", "family"], rating: 3.9 },
-  { title: "Patternmaster", author: "Octavia Butler", year: 1976, description: "A science fiction novel about psychic powers.", genres: ["sci-fi", "fantasy", "power"], rating: 3.8 },
-  { title: "Survivor", author: "Octavia Butler", year: 1978, description: "A science fiction novel about survival on an alien planet.", genres: ["sci-fi", "adventure", "survival"], rating: 3.9 },
-  { title: "Fledgling", author: "Octavia Butler", year: 2005, description: "A novel about a young vampire.", genres: ["sci-fi", "fantasy", "coming-of-age"], rating: 4.0 },
-  { title: "Bloodchild and Other Stories", author: "Octavia Butler", year: 1995, description: "A collection of science fiction short stories.", genres: ["sci-fi", "short stories", "feminism"], rating: 4.1 },
-  { title: "Seed to Harvest", author: "Octavia Butler", year: 2007, description: "A collection of the Patternist series.", genres: ["sci-fi", "fantasy", "collection"], rating: 4.0 },
-  { title: "Lilith's Brood", author: "Octavia Butler", year: 2000, description: "A collection of the Xenogenesis trilogy.", genres: ["sci-fi", "fantasy", "collection"], rating: 4.1 },
-  { title: "The Parable Series", author: "Octavia Butler", year: 2007, description: "A collection of the Parable novels.", genres: ["sci-fi", "dystopian", "collection"], rating: 4.2 },
-  { title: "The Complete Stories", author: "Flannery O'Connor", year: 1971, description: "A collection of all of Flannery O'Connor's short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.3 },
-  { title: "Wise Blood", author: "Flannery O'Connor", year: 1952, description: "A novel about religious fanaticism in the South.", genres: ["contemporary", "religion", "southern gothic"], rating: 4.1 },
-  { title: "The Violent Bear It Away", author: "Flannery O'Connor", year: 1960, description: "A novel about prophecy and violence.", genres: ["contemporary", "religion", "southern gothic"], rating: 4.0 },
-  { title: "A Good Man Is Hard to Find", author: "Flannery O'Connor", year: 1955, description: "A collection of short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.2 },
-  { title: "Everything That Rises Must Converge", author: "Flannery O'Connor", year: 1965, description: "A collection of short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.1 },
-  { title: "Mystery and Manners", author: "Flannery O'Connor", year: 1969, description: "Essays on writing and literature.", genres: ["essays", "writing", "literature"], rating: 4.0 },
-  { title: "The Habit of Being", author: "Flannery O'Connor", year: 1979, description: "Letters of Flannery O'Connor.", genres: ["letters", "biography", "literature"], rating: 4.1 },
-  { title: "A Prayer Journal", author: "Flannery O'Connor", year: 2013, description: "Flannery O'Connor's prayer journal.", genres: ["journal", "religion", "spirituality"], rating: 4.0 },
-  { title: "The Complete Stories", author: "Eudora Welty", year: 1980, description: "A collection of all of Eudora Welty's short stories.", genres: ["short stories", "southern", "family"], rating: 4.2 },
-  { title: "Delta Wedding", author: "Eudora Welty", year: 1946, description: "A novel about a Southern family wedding.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "The Optimist's Daughter", author: "Eudora Welty", year: 1972, description: "A Pulitzer Prize-winning novel about grief and family.", genres: ["contemporary", "family", "grief"], rating: 4.1 },
-  { title: "Losing Battles", author: "Eudora Welty", year: 1970, description: "A novel about a Southern family reunion.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "The Robber Bridegroom", author: "Eudora Welty", year: 1942, description: "A fairy tale set in the American South.", genres: ["fantasy", "fairy tale", "southern"], rating: 3.9 },
-  { title: "The Ponder Heart", author: "Eudora Welty", year: 1954, description: "A novel about a Southern family and inheritance.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "One Writer's Beginnings", author: "Eudora Welty", year: 1984, description: "A memoir about writing and family.", genres: ["memoir", "writing", "family"], rating: 4.1 },
-  { title: "The Eye of the Story", author: "Eudora Welty", year: 1978, description: "Essays on writing and literature.", genres: ["essays", "writing", "literature"], rating: 4.0 },
-  { title: "The Golden Apples", author: "Eudora Welty", year: 1949, description: "A collection of interconnected short stories.", genres: ["short stories", "southern", "community"], rating: 4.1 },
-  { title: "The Wide Net", author: "Eudora Welty", year: 1943, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.0 },
-  { title: "A Curtain of Green", author: "Eudora Welty", year: 1941, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.1 },
-  { title: "The Bride of the Innisfallen", author: "Eudora Welty", year: 1955, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.0 },
-  { title: "The Collected Stories", author: "Eudora Welty", year: 1980, description: "A comprehensive collection of short stories.", genres: ["short stories", "southern", "collection"], rating: 4.2 },
-  { title: "The Norton Book of Friendship", author: "Eudora Welty", year: 1991, description: "An anthology of writings about friendship.", genres: ["anthology", "friendship", "literature"], rating: 4.0 },
-  { title: "The Norton Book of American Autobiography", author: "Eudora Welty", year: 1991, description: "An anthology of American autobiographies.", genres: ["anthology", "autobiography", "american"], rating: 4.1 },
-  
-  // Banned & Challenged Books - Important Works of Literature
-  // Classic Banned Books
-  { title: "1984", author: "George Orwell", year: 1949, description: "A dystopian novel about totalitarian surveillance and control.", genres: ["dystopian", "sci-fi", "political"], rating: 4.5 },
-  { title: "Animal Farm", author: "George Orwell", year: 1945, description: "An allegorical novel about the Russian Revolution.", genres: ["allegory", "political", "satire"], rating: 4.4 },
-  { title: "Brave New World", author: "Aldous Huxley", year: 1932, description: "A dystopian novel about a controlled society.", genres: ["dystopian", "sci-fi", "social commentary"], rating: 4.3 },
-  { title: "Fahrenheit 451", author: "Ray Bradbury", year: 1953, description: "A dystopian novel about book burning and censorship.", genres: ["dystopian", "sci-fi", "censorship"], rating: 4.4 },
-  { title: "The Catcher in the Rye", author: "J.D. Salinger", year: 1951, description: "A novel about teenage alienation and rebellion.", genres: ["coming-of-age", "contemporary", "rebellion"], rating: 4.2 },
-  { title: "To Kill a Mockingbird", author: "Harper Lee", year: 1960, description: "A novel about racial injustice in the American South.", genres: ["historical fiction", "social justice", "race"], rating: 4.5 },
-  { title: "The Adventures of Huckleberry Finn", author: "Mark Twain", year: 1885, description: "A novel about a boy's journey down the Mississippi River.", genres: ["adventure", "coming-of-age", "social commentary"], rating: 4.3 },
-  { title: "The Great Gatsby", author: "F. Scott Fitzgerald", year: 1925, description: "A novel about the American Dream and the Jazz Age.", genres: ["classic", "romance", "social commentary"], rating: 4.4 },
-  { title: "Of Mice and Men", author: "John Steinbeck", year: 1937, description: "A novel about friendship during the Great Depression.", genres: ["classic", "drama", "friendship"], rating: 4.3 },
-  { title: "The Grapes of Wrath", author: "John Steinbeck", year: 1939, description: "A novel about migrant workers during the Dust Bowl.", genres: ["historical fiction", "social commentary", "family"], rating: 4.4 },
-  { title: "Lord of the Flies", author: "William Golding", year: 1954, description: "A novel about boys stranded on an island and human nature.", genres: ["allegory", "survival", "psychological"], rating: 4.2 },
-  { title: "The Lord of the Rings", author: "J.R.R. Tolkien", year: 1954, description: "An epic fantasy trilogy about the quest to destroy a powerful ring.", genres: ["fantasy", "adventure", "epic"], rating: 4.6 },
-  { title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937, description: "A fantasy novel about a hobbit's adventure with dwarves.", genres: ["fantasy", "adventure", "quest"], rating: 4.5 },
-  { title: "The Chronicles of Narnia", author: "C.S. Lewis", year: 1950, description: "A fantasy series about children in a magical world.", genres: ["fantasy", "adventure", "children"], rating: 4.4 },
-  { title: "A Clockwork Orange", author: "Anthony Burgess", year: 1962, description: "A dystopian novel about violence and free will.", genres: ["dystopian", "sci-fi", "psychological"], rating: 4.1 },
-  { title: "Lolita", author: "Vladimir Nabokov", year: 1955, description: "A controversial novel about obsession and manipulation.", genres: ["contemporary", "psychological", "controversial"], rating: 4.2 },
-  { title: "The Satanic Verses", author: "Salman Rushdie", year: 1988, description: "A novel about migration and religious controversy.", genres: ["contemporary", "magical realism", "religious"], rating: 4.1 },
-  { title: "The Handmaid's Tale", author: "Margaret Atwood", year: 1985, description: "A dystopian novel about women's oppression.", genres: ["dystopian", "feminism", "social commentary"], rating: 4.4 },
-  { title: "Beloved", author: "Toni Morrison", year: 1987, description: "A novel about slavery and its psychological aftermath.", genres: ["historical fiction", "magical realism", "slavery"], rating: 4.4 },
-  { title: "The Color Purple", author: "Alice Walker", year: 1982, description: "A novel about African American women's struggles.", genres: ["historical fiction", "feminism", "race"], rating: 4.5 },
-  { title: "Native Son", author: "Richard Wright", year: 1940, description: "A novel about racial inequality and crime in Chicago.", genres: ["contemporary", "social commentary", "race"], rating: 4.3 },
-  { title: "Invisible Man", author: "Ralph Ellison", year: 1952, description: "A novel about African American identity and invisibility.", genres: ["contemporary", "social commentary", "identity"], rating: 4.4 },
-  { title: "Go Tell It on the Mountain", author: "James Baldwin", year: 1953, description: "A novel about religion and family in Harlem.", genres: ["contemporary", "religious", "family"], rating: 4.2 },
-  { title: "Giovanni's Room", author: "James Baldwin", year: 1956, description: "A novel about homosexuality and identity in Paris.", genres: ["contemporary", "lgbtq", "romance"], rating: 4.3 },
-  { title: "Another Country", author: "James Baldwin", year: 1962, description: "A novel about race, sexuality, and love in New York.", genres: ["contemporary", "social commentary", "romance"], rating: 4.1 },
-  { title: "If Beale Street Could Talk", author: "James Baldwin", year: 1974, description: "A novel about love and injustice in Harlem.", genres: ["contemporary", "romance", "social justice"], rating: 4.2 },
-  { title: "The Autobiography of Malcolm X", author: "Malcolm X", year: 1965, description: "An autobiography about civil rights and personal transformation.", genres: ["autobiography", "civil rights", "social justice"], rating: 4.5 },
-  { title: "The Fire Next Time", author: "James Baldwin", year: 1963, description: "Essays about race relations in America.", genres: ["essays", "civil rights", "social commentary"], rating: 4.4 },
-  { title: "Notes of a Native Son", author: "James Baldwin", year: 1955, description: "Essays about race and identity in America.", genres: ["essays", "social commentary", "identity"], rating: 4.3 },
-  { title: "Nobody Knows My Name", author: "James Baldwin", year: 1961, description: "Essays about race and American society.", genres: ["essays", "social commentary", "race"], rating: 4.2 },
-  { title: "The Devil Finds Work", author: "James Baldwin", year: 1976, description: "Essays about race and cinema.", genres: ["essays", "film", "social commentary"], rating: 4.1 },
-  { title: "No Name in the Street", author: "James Baldwin", year: 1972, description: "A memoir about the Civil Rights Movement.", genres: ["memoir", "civil rights", "social justice"], rating: 4.2 },
-  { title: "The Evidence of Things Not Seen", author: "James Baldwin", year: 1985, description: "A book about the Atlanta child murders.", genres: ["true crime", "social commentary", "justice"], rating: 4.0 },
-  { title: "The Price of the Ticket", author: "James Baldwin", year: 1985, description: "A collection of essays spanning 1948-1985.", genres: ["essays", "social commentary", "civil rights"], rating: 4.1 },
-  { title: "The Cross of Redemption", author: "James Baldwin", year: 2010, description: "Uncollected writings by James Baldwin.", genres: ["essays", "social commentary", "civil rights"], rating: 4.0 },
-  { title: "I Am Not Your Negro", author: "James Baldwin", year: 2017, description: "A documentary about James Baldwin's unfinished book.", genres: ["essays", "social commentary", "civil rights"], rating: 4.3 },
-  { title: "The Women of Brewster Place", author: "Gloria Naylor", year: 1982, description: "A novel about African American women in a housing project.", genres: ["contemporary", "feminism", "community"], rating: 4.2 },
-  { title: "Linden Hills", author: "Gloria Naylor", year: 1985, description: "A novel about an African American community.", genres: ["contemporary", "social commentary", "community"], rating: 4.0 },
-  { title: "Mama Day", author: "Gloria Naylor", year: 1988, description: "A novel blending realism and magical realism.", genres: ["contemporary", "magical realism", "family"], rating: 4.1 },
-  { title: "Bailey's Cafe", author: "Gloria Naylor", year: 1992, description: "A novel about a magical cafe and its patrons.", genres: ["contemporary", "magical realism", "community"], rating: 4.0 },
-  { title: "The Men of Brewster Place", author: "Gloria Naylor", year: 1998, description: "A novel about the men of the same housing project.", genres: ["contemporary", "masculinity", "community"], rating: 3.9 },
-  { title: "1996", author: "Gloria Naylor", year: 2005, description: "A novel about the year 1996 and its significance.", genres: ["contemporary", "historical", "reflection"], rating: 3.8 },
-  { title: "Kindred", author: "Octavia Butler", year: 1979, description: "A science fiction novel about a black woman who travels back to slavery times.", genres: ["sci-fi", "historical fiction", "slavery"], rating: 4.4 },
-  { title: "Parable of the Sower", author: "Octavia Butler", year: 1993, description: "A dystopian novel about a young woman's journey.", genres: ["dystopian", "sci-fi", "feminism"], rating: 4.3 },
-  { title: "Parable of the Talents", author: "Octavia Butler", year: 1998, description: "The sequel to Parable of the Sower.", genres: ["dystopian", "sci-fi", "feminism"], rating: 4.2 },
-  { title: "Wild Seed", author: "Octavia Butler", year: 1980, description: "A science fiction novel about immortals.", genres: ["sci-fi", "fantasy", "romance"], rating: 4.1 },
-  { title: "Mind of My Mind", author: "Octavia Butler", year: 1977, description: "A science fiction novel about telepathy.", genres: ["sci-fi", "fantasy", "family"], rating: 4.0 },
-  { title: "Clay's Ark", author: "Octavia Butler", year: 1984, description: "A science fiction novel about an alien disease.", genres: ["sci-fi", "horror", "family"], rating: 3.9 },
-  { title: "Patternmaster", author: "Octavia Butler", year: 1976, description: "A science fiction novel about psychic powers.", genres: ["sci-fi", "fantasy", "power"], rating: 3.8 },
-  { title: "Survivor", author: "Octavia Butler", year: 1978, description: "A science fiction novel about survival on an alien planet.", genres: ["sci-fi", "adventure", "survival"], rating: 3.9 },
-  { title: "Fledgling", author: "Octavia Butler", year: 2005, description: "A novel about a young vampire.", genres: ["sci-fi", "fantasy", "coming-of-age"], rating: 4.0 },
-  { title: "Bloodchild and Other Stories", author: "Octavia Butler", year: 1995, description: "A collection of science fiction short stories.", genres: ["sci-fi", "short stories", "feminism"], rating: 4.1 },
-  { title: "Seed to Harvest", author: "Octavia Butler", year: 2007, description: "A collection of the Patternist series.", genres: ["sci-fi", "fantasy", "collection"], rating: 4.0 },
-  { title: "Lilith's Brood", author: "Octavia Butler", year: 2000, description: "A collection of the Xenogenesis trilogy.", genres: ["sci-fi", "fantasy", "collection"], rating: 4.1 },
-  { title: "The Parable Series", author: "Octavia Butler", year: 2007, description: "A collection of the Parable novels.", genres: ["sci-fi", "dystopian", "collection"], rating: 4.2 },
-  { title: "The Complete Stories", author: "Flannery O'Connor", year: 1971, description: "A collection of all of Flannery O'Connor's short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.3 },
-  { title: "Wise Blood", author: "Flannery O'Connor", year: 1952, description: "A novel about religious fanaticism in the South.", genres: ["contemporary", "religious", "southern gothic"], rating: 4.1 },
-  { title: "The Violent Bear It Away", author: "Flannery O'Connor", year: 1960, description: "A novel about prophecy and violence.", genres: ["contemporary", "religious", "southern gothic"], rating: 4.0 },
-  { title: "A Good Man Is Hard to Find", author: "Flannery O'Connor", year: 1955, description: "A collection of short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.2 },
-  { title: "Everything That Rises Must Converge", author: "Flannery O'Connor", year: 1965, description: "A collection of short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.1 },
-  { title: "Mystery and Manners", author: "Flannery O'Connor", year: 1969, description: "Essays on writing and literature.", genres: ["essays", "writing", "literature"], rating: 4.0 },
-  { title: "The Habit of Being", author: "Flannery O'Connor", year: 1979, description: "Letters of Flannery O'Connor.", genres: ["letters", "biography", "literature"], rating: 4.1 },
-  { title: "A Prayer Journal", author: "Flannery O'Connor", year: 2013, description: "Flannery O'Connor's prayer journal.", genres: ["journal", "religious", "spirituality"], rating: 4.0 },
-  { title: "The Complete Stories", author: "Eudora Welty", year: 1980, description: "A collection of all of Eudora Welty's short stories.", genres: ["short stories", "southern", "family"], rating: 4.2 },
-  { title: "Delta Wedding", author: "Eudora Welty", year: 1946, description: "A novel about a Southern family wedding.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "The Optimist's Daughter", author: "Eudora Welty", year: 1972, description: "A Pulitzer Prize-winning novel about grief and family.", genres: ["contemporary", "family", "grief"], rating: 4.1 },
-  { title: "Losing Battles", author: "Eudora Welty", year: 1970, description: "A novel about a Southern family reunion.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "The Robber Bridegroom", author: "Eudora Welty", year: 1942, description: "A fairy tale set in the American South.", genres: ["fantasy", "fairy tale", "southern"], rating: 3.9 },
-  { title: "The Ponder Heart", author: "Eudora Welty", year: 1954, description: "A novel about a Southern family and inheritance.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "One Writer's Beginnings", author: "Eudora Welty", year: 1984, description: "A memoir about writing and family.", genres: ["memoir", "writing", "family"], rating: 4.1 },
-  { title: "The Eye of the Story", author: "Eudora Welty", year: 1978, description: "Essays on writing and literature.", genres: ["essays", "writing", "literature"], rating: 4.0 },
-  { title: "The Golden Apples", author: "Eudora Welty", year: 1949, description: "A collection of interconnected short stories.", genres: ["short stories", "southern", "community"], rating: 4.1 },
-  { title: "The Wide Net", author: "Eudora Welty", year: 1943, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.0 },
-  { title: "A Curtain of Green", author: "Eudora Welty", year: 1941, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.1 },
-  { title: "The Bride of the Innisfallen", author: "Eudora Welty", year: 1955, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.0 },
-  { title: "The Collected Stories", author: "Eudora Welty", year: 1980, description: "A comprehensive collection of short stories.", genres: ["short stories", "southern", "collection"], rating: 4.2 },
-  { title: "The Norton Book of Friendship", author: "Eudora Welty", year: 1991, description: "An anthology of writings about friendship.", genres: ["anthology", "friendship", "literature"], rating: 4.0 },
-  { title: "The Norton Book of American Autobiography", author: "Eudora Welty", year: 1991, description: "An anthology of American autobiographies.", genres: ["anthology", "autobiography", "american"], rating: 4.1 },
-  
-  // Banned & Challenged Books - Important Works of Literature
-  // Classic Banned Books
-  { title: "1984", author: "George Orwell", year: 1949, description: "A dystopian novel about totalitarian surveillance and control.", genres: ["dystopian", "sci-fi", "political"], rating: 4.5 },
-  { title: "Animal Farm", author: "George Orwell", year: 1945, description: "An allegorical novel about the Russian Revolution.", genres: ["allegory", "political", "satire"], rating: 4.4 },
-  { title: "Brave New World", author: "Aldous Huxley", year: 1932, description: "A dystopian novel about a controlled society.", genres: ["dystopian", "sci-fi", "social commentary"], rating: 4.3 },
-  { title: "Fahrenheit 451", author: "Ray Bradbury", year: 1953, description: "A dystopian novel about book burning and censorship.", genres: ["dystopian", "sci-fi", "censorship"], rating: 4.4 },
-  { title: "The Catcher in the Rye", author: "J.D. Salinger", year: 1951, description: "A novel about teenage alienation and rebellion.", genres: ["coming-of-age", "contemporary", "rebellion"], rating: 4.2 },
-  { title: "To Kill a Mockingbird", author: "Harper Lee", year: 1960, description: "A novel about racial injustice in the American South.", genres: ["historical fiction", "social justice", "race"], rating: 4.5 },
-  { title: "The Adventures of Huckleberry Finn", author: "Mark Twain", year: 1885, description: "A novel about a boy's journey down the Mississippi River.", genres: ["adventure", "coming-of-age", "social commentary"], rating: 4.3 },
-  { title: "The Great Gatsby", author: "F. Scott Fitzgerald", year: 1925, description: "A novel about the American Dream and the Jazz Age.", genres: ["classic", "romance", "social commentary"], rating: 4.4 },
-  { title: "Of Mice and Men", author: "John Steinbeck", year: 1937, description: "A novel about friendship during the Great Depression.", genres: ["classic", "drama", "friendship"], rating: 4.3 },
-  { title: "The Grapes of Wrath", author: "John Steinbeck", year: 1939, description: "A novel about migrant workers during the Dust Bowl.", genres: ["historical fiction", "social commentary", "family"], rating: 4.4 },
-  { title: "Lord of the Flies", author: "William Golding", year: 1954, description: "A novel about boys stranded on an island and human nature.", genres: ["allegory", "survival", "psychological"], rating: 4.2 },
-  { title: "The Lord of the Rings", author: "J.R.R. Tolkien", year: 1954, description: "An epic fantasy trilogy about the quest to destroy a powerful ring.", genres: ["fantasy", "adventure", "epic"], rating: 4.6 },
-  { title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937, description: "A fantasy novel about a hobbit's adventure with dwarves.", genres: ["fantasy", "adventure", "quest"], rating: 4.5 },
-  { title: "The Chronicles of Narnia", author: "C.S. Lewis", year: 1950, description: "A fantasy series about children in a magical world.", genres: ["fantasy", "adventure", "children"], rating: 4.4 },
-  { title: "A Clockwork Orange", author: "Anthony Burgess", year: 1962, description: "A dystopian novel about violence and free will.", genres: ["dystopian", "sci-fi", "psychological"], rating: 4.1 },
-  { title: "Lolita", author: "Vladimir Nabokov", year: 1955, description: "A controversial novel about obsession and manipulation.", genres: ["contemporary", "psychological", "controversial"], rating: 4.2 },
-  { title: "The Satanic Verses", author: "Salman Rushdie", year: 1988, description: "A novel about migration and religious controversy.", genres: ["contemporary", "magical realism", "religious"], rating: 4.1 },
-  { title: "The Handmaid's Tale", author: "Margaret Atwood", year: 1985, description: "A dystopian novel about women's oppression.", genres: ["dystopian", "feminism", "social commentary"], rating: 4.4 },
-  { title: "Beloved", author: "Toni Morrison", year: 1987, description: "A novel about slavery and its psychological aftermath.", genres: ["historical fiction", "magical realism", "slavery"], rating: 4.4 },
-  { title: "The Color Purple", author: "Alice Walker", year: 1982, description: "A novel about African American women's struggles.", genres: ["historical fiction", "feminism", "race"], rating: 4.5 },
-  { title: "Native Son", author: "Richard Wright", year: 1940, description: "A novel about racial inequality and crime in Chicago.", genres: ["contemporary", "social commentary", "race"], rating: 4.3 },
-  { title: "Invisible Man", author: "Ralph Ellison", year: 1952, description: "A novel about African American identity and invisibility.", genres: ["contemporary", "social commentary", "identity"], rating: 4.4 },
-  { title: "Go Tell It on the Mountain", author: "James Baldwin", year: 1953, description: "A novel about religion and family in Harlem.", genres: ["contemporary", "religious", "family"], rating: 4.2 },
-  { title: "Giovanni's Room", author: "James Baldwin", year: 1956, description: "A novel about homosexuality and identity in Paris.", genres: ["contemporary", "lgbtq", "romance"], rating: 4.3 },
-  { title: "Another Country", author: "James Baldwin", year: 1962, description: "A novel about race, sexuality, and love in New York.", genres: ["contemporary", "social commentary", "romance"], rating: 4.1 },
-  { title: "If Beale Street Could Talk", author: "James Baldwin", year: 1974, description: "A novel about love and injustice in Harlem.", genres: ["contemporary", "romance", "social justice"], rating: 4.2 },
-  { title: "The Autobiography of Malcolm X", author: "Malcolm X", year: 1965, description: "An autobiography about civil rights and personal transformation.", genres: ["autobiography", "civil rights", "social justice"], rating: 4.5 },
-  { title: "The Fire Next Time", author: "James Baldwin", year: 1963, description: "Essays about race relations in America.", genres: ["essays", "civil rights", "social commentary"], rating: 4.4 },
-  { title: "Notes of a Native Son", author: "James Baldwin", year: 1955, description: "Essays about race and identity in America.", genres: ["essays", "social commentary", "identity"], rating: 4.3 },
-  { title: "Nobody Knows My Name", author: "James Baldwin", year: 1961, description: "Essays about race and American society.", genres: ["essays", "social commentary", "race"], rating: 4.2 },
-  { title: "The Devil Finds Work", author: "James Baldwin", year: 1976, description: "Essays about race and cinema.", genres: ["essays", "film", "social commentary"], rating: 4.1 },
-  { title: "No Name in the Street", author: "James Baldwin", year: 1972, description: "A memoir about the Civil Rights Movement.", genres: ["memoir", "civil rights", "social justice"], rating: 4.2 },
-  { title: "The Evidence of Things Not Seen", author: "James Baldwin", year: 1985, description: "A book about the Atlanta child murders.", genres: ["true crime", "social commentary", "justice"], rating: 4.0 },
-  { title: "The Price of the Ticket", author: "James Baldwin", year: 1985, description: "A collection of essays spanning 1948-1985.", genres: ["essays", "social commentary", "civil rights"], rating: 4.1 },
-  { title: "The Cross of Redemption", author: "James Baldwin", year: 2010, description: "Uncollected writings by James Baldwin.", genres: ["essays", "social commentary", "civil rights"], rating: 4.0 },
-  { title: "I Am Not Your Negro", author: "James Baldwin", year: 2017, description: "A documentary about James Baldwin's unfinished book.", genres: ["essays", "social commentary", "civil rights"], rating: 4.3 },
-  { title: "The Women of Brewster Place", author: "Gloria Naylor", year: 1982, description: "A novel about African American women in a housing project.", genres: ["contemporary", "feminism", "community"], rating: 4.2 },
-  { title: "Linden Hills", author: "Gloria Naylor", year: 1985, description: "A novel about an African American community.", genres: ["contemporary", "social commentary", "community"], rating: 4.0 },
-  { title: "Mama Day", author: "Gloria Naylor", year: 1988, description: "A novel blending realism and magical realism.", genres: ["contemporary", "magical realism", "family"], rating: 4.1 },
-  { title: "Bailey's Cafe", author: "Gloria Naylor", year: 1992, description: "A novel about a magical cafe and its patrons.", genres: ["contemporary", "magical realism", "community"], rating: 4.0 },
-  { title: "The Men of Brewster Place", author: "Gloria Naylor", year: 1998, description: "A novel about the men of the same housing project.", genres: ["contemporary", "masculinity", "community"], rating: 3.9 },
-  { title: "1996", author: "Gloria Naylor", year: 2005, description: "A novel about the year 1996 and its significance.", genres: ["contemporary", "historical", "reflection"], rating: 3.8 },
-  { title: "Kindred", author: "Octavia Butler", year: 1979, description: "A science fiction novel about a black woman who travels back to slavery times.", genres: ["sci-fi", "historical fiction", "slavery"], rating: 4.4 },
-  { title: "Parable of the Sower", author: "Octavia Butler", year: 1993, description: "A dystopian novel about a young woman's journey.", genres: ["dystopian", "sci-fi", "feminism"], rating: 4.3 },
-  { title: "Parable of the Talents", author: "Octavia Butler", year: 1998, description: "The sequel to Parable of the Sower.", genres: ["dystopian", "sci-fi", "feminism"], rating: 4.2 },
-  { title: "Wild Seed", author: "Octavia Butler", year: 1980, description: "A science fiction novel about immortals.", genres: ["sci-fi", "fantasy", "romance"], rating: 4.1 },
-  { title: "Mind of My Mind", author: "Octavia Butler", year: 1977, description: "A science fiction novel about telepathy.", genres: ["sci-fi", "fantasy", "family"], rating: 4.0 },
-  { title: "Clay's Ark", author: "Octavia Butler", year: 1984, description: "A science fiction novel about an alien disease.", genres: ["sci-fi", "horror", "family"], rating: 3.9 },
-  { title: "Patternmaster", author: "Octavia Butler", year: 1976, description: "A science fiction novel about psychic powers.", genres: ["sci-fi", "fantasy", "power"], rating: 3.8 },
-  { title: "Survivor", author: "Octavia Butler", year: 1978, description: "A science fiction novel about survival on an alien planet.", genres: ["sci-fi", "adventure", "survival"], rating: 3.9 },
-  { title: "Fledgling", author: "Octavia Butler", year: 2005, description: "A novel about a young vampire.", genres: ["sci-fi", "fantasy", "coming-of-age"], rating: 4.0 },
-  { title: "Bloodchild and Other Stories", author: "Octavia Butler", year: 1995, description: "A collection of science fiction short stories.", genres: ["sci-fi", "short stories", "feminism"], rating: 4.1 },
-  { title: "Seed to Harvest", author: "Octavia Butler", year: 2007, description: "A collection of the Patternist series.", genres: ["sci-fi", "fantasy", "collection"], rating: 4.0 },
-  { title: "Lilith's Brood", author: "Octavia Butler", year: 2000, description: "A collection of the Xenogenesis trilogy.", genres: ["sci-fi", "fantasy", "collection"], rating: 4.1 },
-  { title: "The Parable Series", author: "Octavia Butler", year: 2007, description: "A collection of the Parable novels.", genres: ["sci-fi", "dystopian", "collection"], rating: 4.2 },
-  { title: "The Complete Stories", author: "Flannery O'Connor", year: 1971, description: "A collection of all of Flannery O'Connor's short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.3 },
-  { title: "Wise Blood", author: "Flannery O'Connor", year: 1952, description: "A novel about religious fanaticism in the South.", genres: ["contemporary", "religion", "southern gothic"], rating: 4.1 },
-  { title: "The Violent Bear It Away", author: "Flannery O'Connor", year: 1960, description: "A novel about prophecy and violence.", genres: ["contemporary", "religion", "southern gothic"], rating: 4.0 },
-  { title: "A Good Man Is Hard to Find", author: "Flannery O'Connor", year: 1955, description: "A collection of short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.2 },
-  { title: "Everything That Rises Must Converge", author: "Flannery O'Connor", year: 1965, description: "A collection of short stories.", genres: ["short stories", "southern gothic", "religion"], rating: 4.1 },
-  { title: "Mystery and Manners", author: "Flannery O'Connor", year: 1969, description: "Essays on writing and literature.", genres: ["essays", "writing", "literature"], rating: 4.0 },
-  { title: "The Habit of Being", author: "Flannery O'Connor", year: 1979, description: "Letters of Flannery O'Connor.", genres: ["letters", "biography", "literature"], rating: 4.1 },
-  { title: "A Prayer Journal", author: "Flannery O'Connor", year: 2013, description: "Flannery O'Connor's prayer journal.", genres: ["journal", "religion", "spirituality"], rating: 4.0 },
-  { title: "The Complete Stories", author: "Eudora Welty", year: 1980, description: "A collection of all of Eudora Welty's short stories.", genres: ["short stories", "southern", "family"], rating: 4.2 },
-  { title: "Delta Wedding", author: "Eudora Welty", year: 1946, description: "A novel about a Southern family wedding.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "The Optimist's Daughter", author: "Eudora Welty", year: 1972, description: "A Pulitzer Prize-winning novel about grief and family.", genres: ["contemporary", "family", "grief"], rating: 4.1 },
-  { title: "Losing Battles", author: "Eudora Welty", year: 1970, description: "A novel about a Southern family reunion.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "The Robber Bridegroom", author: "Eudora Welty", year: 1942, description: "A fairy tale set in the American South.", genres: ["fantasy", "fairy tale", "southern"], rating: 3.9 },
-  { title: "The Ponder Heart", author: "Eudora Welty", year: 1954, description: "A novel about a Southern family and inheritance.", genres: ["contemporary", "family", "southern"], rating: 4.0 },
-  { title: "One Writer's Beginnings", author: "Eudora Welty", year: 1984, description: "A memoir about writing and family.", genres: ["memoir", "writing", "family"], rating: 4.1 },
-  { title: "The Eye of the Story", author: "Eudora Welty", year: 1978, description: "Essays on writing and literature.", genres: ["essays", "writing", "literature"], rating: 4.0 },
-  { title: "The Golden Apples", author: "Eudora Welty", year: 1949, description: "A collection of interconnected short stories.", genres: ["short stories", "southern", "community"], rating: 4.1 },
-  { title: "The Wide Net", author: "Eudora Welty", year: 1943, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.0 },
-  { title: "A Curtain of Green", author: "Eudora Welty", year: 1941, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.1 },
-  { title: "The Bride of the Innisfallen", author: "Eudora Welty", year: 1955, description: "A collection of short stories.", genres: ["short stories", "southern", "family"], rating: 4.0 },
-  { title: "The Collected Stories", author: "Eudora Welty", year: 1980, description: "A comprehensive collection of short stories.", genres: ["short stories", "southern", "collection"], rating: 4.2 },
-  { title: "The Norton Book of Friendship", author: "Eudora Welty", year: 1991, description: "An anthology of writings about friendship.", genres: ["anthology", "friendship", "literature"], rating: 4.0 },
-  { title: "The Norton Book of American Autobiography", author: "Eudora Welty", year: 1991, description: "An anthology of American autobiographies.", genres: ["anthology", "autobiography", "american"], rating: 4.1 },
-  
-  // Cookbooks & Instructional Guides
-  // Classic & Essential Cookbooks
-  { title: "The Joy of Cooking", author: "Irma S. Rombauer", year: 1931, description: "The classic American cookbook with over 4,500 recipes.", genres: ["cookbook", "reference", "non-fiction"], rating: 4.5 },
-  { title: "Mastering the Art of French Cooking", author: "Julia Child", year: 1961, description: "The definitive guide to French cuisine.", genres: ["cookbook", "french", "non-fiction"], rating: 4.6 },
-  { title: "The Fannie Farmer Cookbook", author: "Fannie Farmer", year: 1896, description: "The original Boston Cooking-School Cook Book.", genres: ["cookbook", "classic", "non-fiction"], rating: 4.4 },
-  { title: "The Silver Palate Cookbook", author: "Julee Rosso and Sheila Lukins", year: 1982, description: "Innovative recipes for entertaining.", genres: ["cookbook", "entertaining", "non-fiction"], rating: 4.3 },
-  { title: "The Moosewood Cookbook", author: "Mollie Katzen", year: 1977, description: "Vegetarian recipes from the famous restaurant.", genres: ["cookbook", "vegetarian", "non-fiction"], rating: 4.2 },
-  { title: "The New York Times Cookbook", author: "Craig Claiborne", year: 1961, description: "A collection of the best recipes from the NYT.", genres: ["cookbook", "reference", "non-fiction"], rating: 4.3 },
-  { title: "The Art of Simple Food", author: "Alice Waters", year: 2007, description: "Notes, lessons, and recipes from a delicious revolution.", genres: ["cookbook", "organic", "non-fiction"], rating: 4.4 },
-  { title: "How to Cook Everything", author: "Mark Bittman", year: 1998, description: "Simple recipes for great food.", genres: ["cookbook", "reference", "non-fiction"], rating: 4.5 },
-  { title: "The Professional Chef", author: "The Culinary Institute of America", year: 1976, description: "The official guide to the fundamentals of cooking.", genres: ["cookbook", "professional", "non-fiction"], rating: 4.6 },
-  { title: "Larousse Gastronomique", author: "Prosper Montagné", year: 1938, description: "The world's greatest culinary encyclopedia.", genres: ["cookbook", "encyclopedia", "non-fiction"], rating: 4.7 },
-  
-  // Modern & Celebrity Cookbooks
-  { title: "Salt, Fat, Acid, Heat", author: "Samin Nosrat", year: 2017, description: "Mastering the elements of good cooking.", genres: ["cookbook", "technique", "non-fiction"], rating: 4.6 },
-  { title: "The Food Lab", author: "J. Kenji López-Alt", year: 2015, description: "Better home cooking through science.", genres: ["cookbook", "science", "non-fiction"], rating: 4.7 },
-  { title: "My Life in France", author: "Julia Child", year: 2006, description: "Julia Child's memoir about her time in France.", genres: ["memoir", "cooking", "non-fiction"], rating: 4.4 },
-  { title: "Barefoot Contessa Cookbook", author: "Ina Garten", year: 1999, description: "Recipes from the Barefoot Contessa.", genres: ["cookbook", "entertaining", "non-fiction"], rating: 4.3 },
-  { title: "The Pioneer Woman Cooks", author: "Ree Drummond", year: 2009, description: "Recipes from an accidental country girl.", genres: ["cookbook", "country", "non-fiction"], rating: 4.2 },
-  { title: "Magnolia Table", author: "Joanna Gaines", year: 2018, description: "A collection of recipes for gathering.", genres: ["cookbook", "family", "non-fiction"], rating: 4.1 },
-  { title: "Cravings", author: "Chrissy Teigen", year: 2016, description: "Recipes for all the food you want to eat.", genres: ["cookbook", "modern", "non-fiction"], rating: 4.2 },
-  { title: "The Smitten Kitchen Cookbook", author: "Deb Perelman", year: 2012, description: "Recipes and wisdom from an obsessive home cook.", genres: ["cookbook", "home cooking", "non-fiction"], rating: 4.3 },
-  { title: "Dinner: A Love Story", author: "Jenny Rosenstrach", year: 2012, description: "It all begins at the family table.", genres: ["cookbook", "family", "non-fiction"], rating: 4.1 },
-  { title: "The Sprouted Kitchen", author: "Sara Forte", year: 2012, description: "A tastier take on whole foods.", genres: ["cookbook", "healthy", "non-fiction"], rating: 4.2 },
-  
-  // International & Ethnic Cookbooks
-  { title: "The Complete Asian Cookbook", author: "Charmaine Solomon", year: 1976, description: "A comprehensive guide to Asian cuisine.", genres: ["cookbook", "asian", "non-fiction"], rating: 4.4 },
-  { title: "Essentials of Classic Italian Cooking", author: "Marcella Hazan", year: 1992, description: "The definitive guide to Italian cuisine.", genres: ["cookbook", "italian", "non-fiction"], rating: 4.5 },
-  { title: "The Complete Mexican Cookbook", author: "Diana Kennedy", year: 1989, description: "The definitive guide to Mexican cuisine.", genres: ["cookbook", "mexican", "non-fiction"], rating: 4.4 },
-  { title: "The Complete Indian Cookbook", author: "Madhur Jaffrey", year: 1982, description: "The definitive guide to Indian cuisine.", genres: ["cookbook", "indian", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Middle Eastern Cookbook", author: "Tess Mallos", year: 1979, description: "A comprehensive guide to Middle Eastern cuisine.", genres: ["cookbook", "middle eastern", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Chinese Cookbook", author: "Ken Hom", year: 1984, description: "The definitive guide to Chinese cuisine.", genres: ["cookbook", "chinese", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Thai Cookbook", author: "David Thompson", year: 2002, description: "The definitive guide to Thai cuisine.", genres: ["cookbook", "thai", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Japanese Cookbook", author: "Emi Kazuko", year: 2000, description: "The definitive guide to Japanese cuisine.", genres: ["cookbook", "japanese", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Korean Cookbook", author: "Jung S. Lee", year: 1999, description: "The definitive guide to Korean cuisine.", genres: ["cookbook", "korean", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Vietnamese Cookbook", author: "Ghillie Basan", year: 2001, description: "The definitive guide to Vietnamese cuisine.", genres: ["cookbook", "vietnamese", "non-fiction"], rating: 4.1 },
-  
-  // Specialized & Dietary Cookbooks
-  { title: "The Complete Vegetarian Cookbook", author: "America's Test Kitchen", year: 2015, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "vegetarian", "non-fiction"], rating: 4.4 },
-  { title: "The Complete Vegan Cookbook", author: "Isa Chandra Moskowitz", year: 2005, description: "Over 200 delicious recipes.", genres: ["cookbook", "vegan", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Gluten-Free Cookbook", author: "America's Test Kitchen", year: 2014, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "gluten-free", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Keto Cookbook", author: "America's Test Kitchen", year: 2019, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "keto", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Paleo Cookbook", author: "America's Test Kitchen", year: 2018, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "paleo", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Mediterranean Cookbook", author: "America's Test Kitchen", year: 2016, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "mediterranean", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Diabetes Cookbook", author: "America's Test Kitchen", year: 2017, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "diabetes", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Heart-Healthy Cookbook", author: "America's Test Kitchen", year: 2018, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "heart-healthy", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Low-Sodium Cookbook", author: "America's Test Kitchen", year: 2019, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "low-sodium", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Anti-Inflammatory Cookbook", author: "America's Test Kitchen", year: 2020, description: "A fresh guide to eating well with more than 700 recipes.", genres: ["cookbook", "anti-inflammatory", "non-fiction"], rating: 4.1 },
-  
-  // Baking & Dessert Cookbooks
-  { title: "The Complete Baking Book", author: "America's Test Kitchen", year: 2013, description: "A fresh guide to baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.5 },
-  { title: "The Complete Cake Book", author: "America's Test Kitchen", year: 2014, description: "A fresh guide to cake baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.4 },
-  { title: "The Complete Cookie Book", author: "America's Test Kitchen", year: 2015, description: "A fresh guide to cookie baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Bread Book", author: "America's Test Kitchen", year: 2016, description: "A fresh guide to bread baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.4 },
-  { title: "The Complete Pie Book", author: "America's Test Kitchen", year: 2017, description: "A fresh guide to pie baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Pastry Book", author: "America's Test Kitchen", year: 2018, description: "A fresh guide to pastry baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Chocolate Book", author: "America's Test Kitchen", year: 2019, description: "A fresh guide to chocolate baking with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Ice Cream Book", author: "America's Test Kitchen", year: 2020, description: "A fresh guide to ice cream making with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Candy Book", author: "America's Test Kitchen", year: 2021, description: "A fresh guide to candy making with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Confectionery Book", author: "America's Test Kitchen", year: 2022, description: "A fresh guide to confectionery making with more than 700 recipes.", genres: ["cookbook", "baking", "non-fiction"], rating: 4.1 },
-  
-  // Instructional Guides & How-To Books
-  // Home & Garden
-  { title: "The Complete Home Improvement Manual", author: "Reader's Digest", year: 1991, description: "A comprehensive guide to home improvement projects.", genres: ["instructional", "home improvement", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Gardener's Manual", author: "Reader's Digest", year: 1992, description: "A comprehensive guide to gardening.", genres: ["instructional", "gardening", "non-fiction"], rating: 4.4 },
-  { title: "The Complete Woodworker's Manual", author: "Reader's Digest", year: 1993, description: "A comprehensive guide to woodworking.", genres: ["instructional", "woodworking", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Sewing Manual", author: "Reader's Digest", year: 1994, description: "A comprehensive guide to sewing.", genres: ["instructional", "sewing", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Knitting Manual", author: "Reader's Digest", year: 1995, description: "A comprehensive guide to knitting.", genres: ["instructional", "knitting", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Crochet Manual", author: "Reader's Digest", year: 1996, description: "A comprehensive guide to crochet.", genres: ["instructional", "crochet", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Quilting Manual", author: "Reader's Digest", year: 1997, description: "A comprehensive guide to quilting.", genres: ["instructional", "quilting", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Embroidery Manual", author: "Reader's Digest", year: 1998, description: "A comprehensive guide to embroidery.", genres: ["instructional", "embroidery", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Beading Manual", author: "Reader's Digest", year: 1999, description: "A comprehensive guide to beading.", genres: ["instructional", "beading", "non-fiction"], rating: 3.9 },
-  { title: "The Complete Jewelry Making Manual", author: "Reader's Digest", year: 2000, description: "A comprehensive guide to jewelry making.", genres: ["instructional", "jewelry", "non-fiction"], rating: 4.1 },
-  
-  // Technology & Programming
-  { title: "The Complete Computer Manual", author: "Reader's Digest", year: 2001, description: "A comprehensive guide to computers.", genres: ["instructional", "computers", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Internet Manual", author: "Reader's Digest", year: 2002, description: "A comprehensive guide to the internet.", genres: ["instructional", "internet", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Smartphone Manual", author: "Reader's Digest", year: 2003, description: "A comprehensive guide to smartphones.", genres: ["instructional", "smartphones", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Tablet Manual", author: "Reader's Digest", year: 2004, description: "A comprehensive guide to tablets.", genres: ["instructional", "tablets", "non-fiction"], rating: 3.9 },
-  { title: "The Complete Social Media Manual", author: "Reader's Digest", year: 2005, description: "A comprehensive guide to social media.", genres: ["instructional", "social media", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Photography Manual", author: "Reader's Digest", year: 2006, description: "A comprehensive guide to photography.", genres: ["instructional", "photography", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Video Editing Manual", author: "Reader's Digest", year: 2007, description: "A comprehensive guide to video editing.", genres: ["instructional", "video editing", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Graphic Design Manual", author: "Reader's Digest", year: 2008, description: "A comprehensive guide to graphic design.", genres: ["instructional", "graphic design", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Web Design Manual", author: "Reader's Digest", year: 2009, description: "A comprehensive guide to web design.", genres: ["instructional", "web design", "non-fiction"], rating: 4.0 },
-  { title: "The Complete App Development Manual", author: "Reader's Digest", year: 2010, description: "A comprehensive guide to app development.", genres: ["instructional", "app development", "non-fiction"], rating: 4.1 },
-  
-  // Fitness & Health
-  { title: "The Complete Fitness Manual", author: "Reader's Digest", year: 2011, description: "A comprehensive guide to fitness.", genres: ["instructional", "fitness", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Yoga Manual", author: "Reader's Digest", year: 2012, description: "A comprehensive guide to yoga.", genres: ["instructional", "yoga", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Pilates Manual", author: "Reader's Digest", year: 2013, description: "A comprehensive guide to pilates.", genres: ["instructional", "pilates", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Meditation Manual", author: "Reader's Digest", year: 2014, description: "A comprehensive guide to meditation.", genres: ["instructional", "meditation", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Nutrition Manual", author: "Reader's Digest", year: 2015, description: "A comprehensive guide to nutrition.", genres: ["instructional", "nutrition", "non-fiction"], rating: 4.3 },
-  { title: "The Complete First Aid Manual", author: "Reader's Digest", year: 2016, description: "A comprehensive guide to first aid.", genres: ["instructional", "first aid", "non-fiction"], rating: 4.4 },
-  { title: "The Complete Emergency Preparedness Manual", author: "Reader's Digest", year: 2017, description: "A comprehensive guide to emergency preparedness.", genres: ["instructional", "emergency", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Survival Manual", author: "Reader's Digest", year: 2018, description: "A comprehensive guide to survival.", genres: ["instructional", "survival", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Self-Defense Manual", author: "Reader's Digest", year: 2019, description: "A comprehensive guide to self-defense.", genres: ["instructional", "self-defense", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Mental Health Manual", author: "Reader's Digest", year: 2020, description: "A comprehensive guide to mental health.", genres: ["instructional", "mental health", "non-fiction"], rating: 4.3 },
-  
-  // Business & Finance
-  { title: "The Complete Business Manual", author: "Reader's Digest", year: 2021, description: "A comprehensive guide to business.", genres: ["instructional", "business", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Finance Manual", author: "Reader's Digest", year: 2022, description: "A comprehensive guide to personal finance.", genres: ["instructional", "finance", "non-fiction"], rating: 4.3 },
-  { title: "The Complete Investment Manual", author: "Reader's Digest", year: 2023, description: "A comprehensive guide to investing.", genres: ["instructional", "investing", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Tax Manual", author: "Reader's Digest", year: 2024, description: "A comprehensive guide to taxes.", genres: ["instructional", "taxes", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Retirement Planning Manual", author: "Reader's Digest", year: 2025, description: "A comprehensive guide to retirement planning.", genres: ["instructional", "retirement", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Estate Planning Manual", author: "Reader's Digest", year: 2026, description: "A comprehensive guide to estate planning.", genres: ["instructional", "estate planning", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Insurance Manual", author: "Reader's Digest", year: 2027, description: "A comprehensive guide to insurance.", genres: ["instructional", "insurance", "non-fiction"], rating: 4.0 },
-  { title: "The Complete Real Estate Manual", author: "Reader's Digest", year: 2028, description: "A comprehensive guide to real estate.", genres: ["instructional", "real estate", "non-fiction"], rating: 4.1 },
-  { title: "The Complete Marketing Manual", author: "Reader's Digest", year: 2029, description: "A comprehensive guide to marketing.", genres: ["instructional", "marketing", "non-fiction"], rating: 4.2 },
-  { title: "The Complete Sales Manual", author: "Reader's Digest", year: 2030, description: "A comprehensive guide to sales.", genres: ["instructional", "sales", "non-fiction"], rating: 4.1 },
-  
-  // Phase 1: High-Impact, High-Demand Genres
-  // Romance & Contemporary Fiction (50-75 books)
-  // Contemporary Romance
-  { title: "The Notebook", author: "Nicholas Sparks", year: 1996, description: "A timeless love story about a couple's enduring romance.", genres: ["romance", "contemporary", "fiction"], rating: 4.2 },
-  { title: "A Walk to Remember", author: "Nicholas Sparks", year: 1999, description: "A touching story of first love and faith.", genres: ["romance", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Last Song", author: "Nicholas Sparks", year: 2009, description: "A story of love, family, and second chances.", genres: ["romance", "contemporary", "fiction"], rating: 4.0 },
-  { title: "Message in a Bottle", author: "Nicholas Sparks", year: 1998, description: "A journalist discovers a love letter in a bottle.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  { title: "Dear John", author: "Nicholas Sparks", year: 2006, description: "A soldier and college student fall in love.", genres: ["romance", "contemporary", "fiction"], rating: 4.0 },
-  { title: "The Lucky One", author: "Nicholas Sparks", year: 2008, description: "A Marine finds a photograph that changes his life.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  { title: "Safe Haven", author: "Nicholas Sparks", year: 2010, description: "A mysterious woman finds love in a small town.", genres: ["romance", "contemporary", "fiction"], rating: 4.0 },
-  { title: "The Best of Me", author: "Nicholas Sparks", year: 2011, description: "High school sweethearts reunite after twenty years.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  { title: "The Longest Ride", author: "Nicholas Sparks", year: 2013, description: "Two love stories spanning generations.", genres: ["romance", "contemporary", "fiction"], rating: 4.0 },
-  { title: "See Me", author: "Nicholas Sparks", year: 2015, description: "A law student and a mysterious man fall in love.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  
-  // Historical Romance
-  { title: "The Duke and I", author: "Julia Quinn", year: 2000, description: "The first book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.3 },
-  { title: "The Viscount Who Loved Me", author: "Julia Quinn", year: 2000, description: "The second book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.2 },
-  { title: "An Offer From a Gentleman", author: "Julia Quinn", year: 2001, description: "The third book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.2 },
-  { title: "Romancing Mister Bridgerton", author: "Julia Quinn", year: 2002, description: "The fourth book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.3 },
-  { title: "To Sir Phillip, With Love", author: "Julia Quinn", year: 2003, description: "The fifth book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.1 },
-  { title: "When He Was Wicked", author: "Julia Quinn", year: 2004, description: "The sixth book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.2 },
-  { title: "It's In His Kiss", author: "Julia Quinn", year: 2005, description: "The seventh book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.1 },
-  { title: "On the Way to the Wedding", author: "Julia Quinn", year: 2006, description: "The eighth book in the Bridgerton series.", genres: ["romance", "historical", "fiction"], rating: 4.2 },
-  { title: "The Other Miss Bridgerton", author: "Julia Quinn", year: 2018, description: "A Bridgerton prequel novel.", genres: ["romance", "historical", "fiction"], rating: 4.0 },
-  { title: "First Comes Scandal", author: "Julia Quinn", year: 2020, description: "A Bridgerton prequel novel.", genres: ["romance", "historical", "fiction"], rating: 4.1 },
-  
-  // Modern Romance & Women's Fiction
-  { title: "Beach Read", author: "Emily Henry", year: 2020, description: "Two writers with nothing in common spend the summer together.", genres: ["romance", "contemporary", "fiction"], rating: 4.2 },
-  { title: "People We Meet on Vacation", author: "Emily Henry", year: 2021, description: "Two friends who take a vacation together every year.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  { title: "Book Lovers", author: "Emily Henry", year: 2022, description: "A literary agent and an editor find love in a small town.", genres: ["romance", "contemporary", "fiction"], rating: 4.3 },
-  { title: "Happy Place", author: "Emily Henry", year: 2023, description: "A couple pretends to still be together for their annual vacation.", genres: ["romance", "contemporary", "fiction"], rating: 4.2 },
-  { title: "Funny Story", author: "Emily Henry", year: 2024, description: "Two people who were left at the altar find love together.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  { title: "The Hating Game", author: "Sally Thorne", year: 2016, description: "Two coworkers who hate each other fall in love.", genres: ["romance", "contemporary", "fiction"], rating: 4.2 },
-  { title: "99 Percent Mine", author: "Sally Thorne", year: 2019, description: "A woman falls for her brother's best friend.", genres: ["romance", "contemporary", "fiction"], rating: 4.0 },
-  { title: "Second First Impressions", author: "Sally Thorne", year: 2021, description: "A shy woman finds love with a tattoo artist.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  { title: "The Unhoneymooners", author: "Christina Lauren", year: 2019, description: "Two enemies go on a honeymoon together.", genres: ["romance", "contemporary", "fiction"], rating: 4.2 },
-  { title: "The Soulmate Equation", author: "Christina Lauren", year: 2021, description: "A single mother tries a DNA-based dating service.", genres: ["romance", "contemporary", "fiction"], rating: 4.1 },
-  
-  // Horror & Supernatural (40-60 books)
-  // Stephen King Classics
-  { title: "Carrie", author: "Stephen King", year: 1974, description: "A teenage girl with telekinetic powers seeks revenge.", genres: ["horror", "supernatural", "fiction"], rating: 4.2 },
-  { title: "Salem's Lot", author: "Stephen King", year: 1975, description: "A writer returns to his hometown to find it overrun by vampires.", genres: ["horror", "supernatural", "fiction"], rating: 4.3 },
-  { title: "The Shining", author: "Stephen King", year: 1977, description: "A family becomes caretakers of a haunted hotel.", genres: ["horror", "supernatural", "fiction"], rating: 4.4 },
-  { title: "The Stand", author: "Stephen King", year: 1978, description: "A post-apocalyptic novel about good versus evil.", genres: ["horror", "apocalyptic", "fiction"], rating: 4.5 },
-  { title: "The Dead Zone", author: "Stephen King", year: 1979, description: "A man gains psychic abilities after a coma.", genres: ["horror", "supernatural", "fiction"], rating: 4.2 },
-  { title: "Firestarter", author: "Stephen King", year: 1980, description: "A young girl with pyrokinetic abilities is hunted by the government.", genres: ["horror", "supernatural", "fiction"], rating: 4.1 },
-  { title: "Cujo", author: "Stephen King", year: 1981, description: "A rabid dog terrorizes a small town.", genres: ["horror", "thriller", "fiction"], rating: 4.0 },
-  { title: "Christine", author: "Stephen King", year: 1983, description: "A possessed car wreaks havoc on its owner's life.", genres: ["horror", "supernatural", "fiction"], rating: 4.1 },
-  { title: "Pet Sematary", author: "Stephen King", year: 1983, description: "A family discovers a burial ground that brings the dead back to life.", genres: ["horror", "supernatural", "fiction"], rating: 4.3 },
-  { title: "It", author: "Stephen King", year: 1986, description: "A group of children battle an ancient evil in their hometown.", genres: ["horror", "supernatural", "fiction"], rating: 4.4 },
-  
-  // More Stephen King Classics
-  { title: "Misery", author: "Stephen King", year: 1987, description: "A writer is held captive by his biggest fan.", genres: ["horror", "psychological", "fiction"], rating: 4.3 },
-  { title: "The Tommyknockers", author: "Stephen King", year: 1987, description: "A town is affected by an alien presence.", genres: ["horror", "sci-fi", "fiction"], rating: 4.0 },
-  { title: "The Dark Half", author: "Stephen King", year: 1989, description: "A writer's pseudonym comes to life.", genres: ["horror", "supernatural", "fiction"], rating: 4.1 },
-  { title: "Needful Things", author: "Stephen King", year: 1991, description: "A mysterious shop owner causes chaos in a small town.", genres: ["horror", "supernatural", "fiction"], rating: 4.2 },
-  { title: "Gerald's Game", author: "Stephen King", year: 1992, description: "A woman is handcuffed to a bed and must escape.", genres: ["horror", "psychological", "fiction"], rating: 4.1 },
-  { title: "Dolores Claiborne", author: "Stephen King", year: 1992, description: "A housekeeper confesses to a murder.", genres: ["horror", "mystery", "fiction"], rating: 4.2 },
-  { title: "Insomnia", author: "Stephen King", year: 1994, description: "An elderly man develops insomnia and sees supernatural beings.", genres: ["horror", "supernatural", "fiction"], rating: 4.1 },
-  { title: "Rose Madder", author: "Stephen King", year: 1995, description: "A woman escapes her abusive husband and finds a magical painting.", genres: ["horror", "supernatural", "fiction"], rating: 4.0 },
-  { title: "The Green Mile", author: "Stephen King", year: 1996, description: "A death row inmate has miraculous healing powers.", genres: ["horror", "supernatural", "fiction"], rating: 4.4 },
-  { title: "Bag of Bones", author: "Stephen King", year: 1998, description: "A writer is haunted by his wife's ghost.", genres: ["horror", "supernatural", "fiction"], rating: 4.2 },
-  
-  // Classic Horror
-  { title: "The Haunting of Hill House", author: "Shirley Jackson", year: 1959, description: "Four people investigate a haunted mansion.", genres: ["horror", "gothic", "fiction"], rating: 4.3 },
-  { title: "We Have Always Lived in the Castle", author: "Shirley Jackson", year: 1962, description: "Two sisters live in isolation after their family is poisoned.", genres: ["horror", "gothic", "fiction"], rating: 4.2 },
-  { title: "The Lottery and Other Stories", author: "Shirley Jackson", year: 1949, description: "A collection of horror and suspense stories.", genres: ["horror", "short stories", "fiction"], rating: 4.1 },
-  { title: "The Turn of the Screw", author: "Henry James", year: 1898, description: "A governess believes the children in her care are haunted.", genres: ["horror", "gothic", "fiction"], rating: 4.0 },
-  { title: "Dracula", author: "Bram Stoker", year: 1897, description: "The classic vampire novel.", genres: ["horror", "gothic", "fiction"], rating: 4.2 },
-  { title: "Frankenstein", author: "Mary Shelley", year: 1818, description: "A scientist creates a monster from dead body parts.", genres: ["horror", "gothic", "sci-fi", "fiction"], rating: 4.3 },
-  { title: "The Strange Case of Dr. Jekyll and Mr. Hyde", author: "Robert Louis Stevenson", year: 1886, description: "A doctor experiments with his dark side.", genres: ["horror", "gothic", "fiction"], rating: 4.1 },
-  { title: "The Picture of Dorian Gray", author: "Oscar Wilde", year: 1890, description: "A man's portrait ages while he remains young.", genres: ["horror", "gothic", "fiction"], rating: 4.2 },
-  { title: "The Phantom of the Opera", author: "Gaston Leroux", year: 1909, description: "A disfigured musical genius haunts the Paris Opera House.", genres: ["horror", "gothic", "romance", "fiction"], rating: 4.1 },
-  { title: "The Call of Cthulhu", author: "H.P. Lovecraft", year: 1928, description: "A cosmic horror story about an ancient deity.", genres: ["horror", "cosmic", "fiction"], rating: 4.0 },
-  
-  // Children's & Young Adult Classics (30-50 books)
-  // Dr. Seuss Classics
-  { title: "The Cat in the Hat", author: "Dr. Seuss", year: 1957, description: "A mischievous cat visits two children on a rainy day.", genres: ["children", "picture book", "fiction"], rating: 4.5 },
-  { title: "Green Eggs and Ham", author: "Dr. Seuss", year: 1960, description: "Sam-I-Am tries to convince someone to try green eggs and ham.", genres: ["children", "picture book", "fiction"], rating: 4.4 },
-  { title: "How the Grinch Stole Christmas!", author: "Dr. Seuss", year: 1957, description: "A grumpy creature tries to steal Christmas from Whoville.", genres: ["children", "picture book", "christmas", "fiction"], rating: 4.6 },
-  { title: "One Fish Two Fish Red Fish Blue Fish", author: "Dr. Seuss", year: 1960, description: "A rhyming book about different types of fish.", genres: ["children", "picture book", "fiction"], rating: 4.3 },
-  { title: "The Lorax", author: "Dr. Seuss", year: 1971, description: "A creature speaks for the trees against environmental destruction.", genres: ["children", "picture book", "environmental", "fiction"], rating: 4.4 },
-  { title: "Oh, the Places You'll Go!", author: "Dr. Seuss", year: 1990, description: "An inspirational book about life's journey.", genres: ["children", "picture book", "inspirational", "fiction"], rating: 4.5 },
-  { title: "Horton Hears a Who!", author: "Dr. Seuss", year: 1954, description: "An elephant discovers a tiny world on a speck of dust.", genres: ["children", "picture book", "fiction"], rating: 4.3 },
-  { title: "Yertle the Turtle", author: "Dr. Seuss", year: 1958, description: "A turtle king learns about humility.", genres: ["children", "picture book", "fiction"], rating: 4.2 },
-  { title: "Fox in Socks", author: "Dr. Seuss", year: 1965, description: "A book full of tongue twisters.", genres: ["children", "picture book", "fiction"], rating: 4.1 },
-  { title: "Hop on Pop", author: "Dr. Seuss", year: 1963, description: "A simple rhyming book for beginning readers.", genres: ["children", "picture book", "fiction"], rating: 4.2 },
-  
-  // Roald Dahl Classics
-  { title: "Charlie and the Chocolate Factory", author: "Roald Dahl", year: 1964, description: "A poor boy wins a tour of a magical chocolate factory.", genres: ["children", "fantasy", "fiction"], rating: 4.5 },
-  { title: "Charlie and the Great Glass Elevator", author: "Roald Dahl", year: 1972, description: "Charlie's adventures continue in space.", genres: ["children", "fantasy", "fiction"], rating: 4.2 },
-  { title: "James and the Giant Peach", author: "Roald Dahl", year: 1961, description: "A boy travels in a giant peach with insect friends.", genres: ["children", "fantasy", "fiction"], rating: 4.3 },
-  { title: "Matilda", author: "Roald Dahl", year: 1988, description: "A brilliant girl with telekinetic powers stands up to her cruel headmistress.", genres: ["children", "fantasy", "fiction"], rating: 4.4 },
-  { title: "The BFG", author: "Roald Dahl", year: 1982, description: "A friendly giant kidnaps a girl to help him catch bad giants.", genres: ["children", "fantasy", "fiction"], rating: 4.3 },
-  { title: "The Witches", author: "Roald Dahl", year: 1983, description: "A boy discovers that witches are real and dangerous.", genres: ["children", "fantasy", "horror", "fiction"], rating: 4.2 },
-  { title: "Fantastic Mr. Fox", author: "Roald Dahl", year: 1970, description: "A clever fox outwits three mean farmers.", genres: ["children", "fantasy", "fiction"], rating: 4.1 },
-  { title: "The Twits", author: "Roald Dahl", year: 1980, description: "A mean couple gets their comeuppance.", genres: ["children", "fantasy", "fiction"], rating: 4.0 },
-  { title: "George's Marvellous Medicine", author: "Roald Dahl", year: 1981, description: "A boy creates a special medicine for his grandmother.", genres: ["children", "fantasy", "fiction"], rating: 4.1 },
-  { title: "Danny, the Champion of the World", author: "Roald Dahl", year: 1975, description: "A boy and his father go poaching together.", genres: ["children", "adventure", "fiction"], rating: 4.2 },
-  
-  // Classic Children's Literature
-  { title: "Charlotte's Web", author: "E.B. White", year: 1952, description: "A spider saves a pig's life with her web.", genres: ["children", "classic", "fiction"], rating: 4.5 },
-  { title: "Stuart Little", author: "E.B. White", year: 1945, description: "A mouse is born into a human family.", genres: ["children", "fantasy", "fiction"], rating: 4.2 },
-  { title: "The Trumpet of the Swan", author: "E.B. White", year: 1970, description: "A swan learns to play the trumpet to communicate.", genres: ["children", "fantasy", "fiction"], rating: 4.1 },
-  { title: "The Wind in the Willows", author: "Kenneth Grahame", year: 1908, description: "Animals have adventures along the riverbank.", genres: ["children", "fantasy", "fiction"], rating: 4.3 },
-  { title: "Winnie-the-Pooh", author: "A.A. Milne", year: 1926, description: "A bear and his friends have adventures in the Hundred Acre Wood.", genres: ["children", "fantasy", "fiction"], rating: 4.4 },
-  { title: "The House at Pooh Corner", author: "A.A. Milne", year: 1928, description: "More adventures with Winnie-the-Pooh and friends.", genres: ["children", "fantasy", "fiction"], rating: 4.3 },
-  { title: "Alice's Adventures in Wonderland", author: "Lewis Carroll", year: 1865, description: "A girl falls down a rabbit hole into a magical world.", genres: ["children", "fantasy", "classic", "fiction"], rating: 4.4 },
-  { title: "Through the Looking-Glass", author: "Lewis Carroll", year: 1871, description: "Alice enters a world through a mirror.", genres: ["children", "fantasy", "classic", "fiction"], rating: 4.3 },
-  { title: "Peter Pan", author: "J.M. Barrie", year: 1911, description: "A boy who never grows up takes children to Neverland.", genres: ["children", "fantasy", "classic", "fiction"], rating: 4.3 },
-  { title: "The Secret Garden", author: "Frances Hodgson Burnett", year: 1911, description: "A girl discovers a hidden garden and friendship.", genres: ["children", "classic", "fiction"], rating: 4.4 },
-  
-  // Poetry & Drama (25-40 books)
-  // Shakespeare's Complete Works
-  { title: "Hamlet", author: "William Shakespeare", year: 1603, description: "A prince seeks revenge for his father's murder.", genres: ["drama", "tragedy", "classic", "fiction"], rating: 4.6 },
-  { title: "Romeo and Juliet", author: "William Shakespeare", year: 1597, description: "Two young lovers from feuding families.", genres: ["drama", "tragedy", "romance", "classic", "fiction"], rating: 4.5 },
-  { title: "Macbeth", author: "William Shakespeare", year: 1606, description: "A Scottish general's ambition leads to his downfall.", genres: ["drama", "tragedy", "classic", "fiction"], rating: 4.5 },
-  { title: "King Lear", author: "William Shakespeare", year: 1606, description: "A king divides his kingdom among his daughters.", genres: ["drama", "tragedy", "classic", "fiction"], rating: 4.4 },
-  { title: "Othello", author: "William Shakespeare", year: 1604, description: "A Moorish general is manipulated by his ensign.", genres: ["drama", "tragedy", "classic", "fiction"], rating: 4.4 },
-  { title: "A Midsummer Night's Dream", author: "William Shakespeare", year: 1596, description: "Fairies and humans interact in a magical forest.", genres: ["drama", "comedy", "fantasy", "classic", "fiction"], rating: 4.3 },
-  { title: "Much Ado About Nothing", author: "William Shakespeare", year: 1599, description: "Two couples find love through deception and misunderstanding.", genres: ["drama", "comedy", "romance", "classic", "fiction"], rating: 4.3 },
-  { title: "The Taming of the Shrew", author: "William Shakespeare", year: 1592, description: "A man tries to tame a headstrong woman.", genres: ["drama", "comedy", "romance", "classic", "fiction"], rating: 4.2 },
-  { title: "Twelfth Night", author: "William Shakespeare", year: 1602, description: "A woman disguises herself as a man and falls in love.", genres: ["drama", "comedy", "romance", "classic", "fiction"], rating: 4.3 },
-  { title: "The Tempest", author: "William Shakespeare", year: 1611, description: "A magician uses his powers to seek revenge.", genres: ["drama", "comedy", "fantasy", "classic", "fiction"], rating: 4.3 },
-  
-  // Classic Poetry
-  { title: "The Complete Poems of Emily Dickinson", author: "Emily Dickinson", year: 1955, description: "A collection of all of Emily Dickinson's poems.", genres: ["poetry", "classic", "non-fiction"], rating: 4.4 },
-  { title: "Leaves of Grass", author: "Walt Whitman", year: 1855, description: "Whitman's groundbreaking collection of poetry.", genres: ["poetry", "classic", "non-fiction"], rating: 4.3 },
-  { title: "The Collected Poems of Robert Frost", author: "Robert Frost", year: 1939, description: "A collection of Frost's most famous poems.", genres: ["poetry", "classic", "non-fiction"], rating: 4.4 },
-  { title: "The Waste Land", author: "T.S. Eliot", year: 1922, description: "A modernist poem about the decline of civilization.", genres: ["poetry", "modernist", "classic", "non-fiction"], rating: 4.2 },
-  { title: "The Love Song of J. Alfred Prufrock", author: "T.S. Eliot", year: 1915, description: "A dramatic monologue about modern alienation.", genres: ["poetry", "modernist", "classic", "non-fiction"], rating: 4.1 },
-  { title: "The Raven and Other Poems", author: "Edgar Allan Poe", year: 1845, description: "A collection of Poe's most famous poems.", genres: ["poetry", "gothic", "classic", "non-fiction"], rating: 4.3 },
-  { title: "Songs of Innocence and Experience", author: "William Blake", year: 1789, description: "Blake's illustrated collection of poems.", genres: ["poetry", "romantic", "classic", "non-fiction"], rating: 4.2 },
-  { title: "The Rime of the Ancient Mariner", author: "Samuel Taylor Coleridge", year: 1798, description: "A sailor's supernatural tale.", genres: ["poetry", "romantic", "classic", "non-fiction"], rating: 4.1 },
-  { title: "Paradise Lost", author: "John Milton", year: 1667, description: "An epic poem about the fall of man.", genres: ["poetry", "epic", "classic", "non-fiction"], rating: 4.3 },
-  { title: "The Divine Comedy", author: "Dante Alighieri", year: 1320, description: "An epic poem about the journey through Hell, Purgatory, and Heaven.", genres: ["poetry", "epic", "classic", "non-fiction"], rating: 4.4 },
-  
-  // Western & Historical Adventure (20-30 books)
-  // Classic Westerns
-  { title: "Shane", author: "Jack Schaefer", year: 1949, description: "A mysterious gunfighter helps a family of homesteaders.", genres: ["western", "classic", "fiction"], rating: 4.3 },
-  { title: "True Grit", author: "Charles Portis", year: 1968, description: "A young girl hires a marshal to track down her father's killer.", genres: ["western", "adventure", "fiction"], rating: 4.2 },
-  { title: "Lonesome Dove", author: "Larry McMurtry", year: 1985, description: "Two former Texas Rangers drive cattle to Montana.", genres: ["western", "historical", "fiction"], rating: 4.5 },
-  { title: "The Virginian", author: "Owen Wister", year: 1902, description: "The first great western novel.", genres: ["western", "classic", "fiction"], rating: 4.1 },
-  { title: "Riders of the Purple Sage", author: "Zane Grey", year: 1912, description: "A gunfighter helps a woman escape from Mormon polygamists.", genres: ["western", "classic", "fiction"], rating: 4.0 },
-  { title: "The Ox-Bow Incident", author: "Walter Van Tilburg Clark", year: 1940, description: "A posse hunts down suspected cattle rustlers.", genres: ["western", "classic", "fiction"], rating: 4.2 },
-  { title: "The Big Sky", author: "A.B. Guthrie Jr.", year: 1947, description: "Mountain men explore the American West.", genres: ["western", "historical", "fiction"], rating: 4.1 },
-  { title: "The Way West", author: "A.B. Guthrie Jr.", year: 1949, description: "A wagon train travels the Oregon Trail.", genres: ["western", "historical", "fiction"], rating: 4.2 },
-  { title: "The Searchers", author: "Alan Le May", year: 1954, description: "A man searches for his kidnapped niece.", genres: ["western", "adventure", "fiction"], rating: 4.1 },
-  { title: "Hondo", author: "Louis L'Amour", year: 1953, description: "A cavalry scout helps a woman and her son.", genres: ["western", "adventure", "fiction"], rating: 4.0 },
-  
-  // Louis L'Amour Classics
-  { title: "Sackett", author: "Louis L'Amour", year: 1961, description: "The first book in the Sackett series.", genres: ["western", "adventure", "fiction"], rating: 4.1 },
-  { title: "The Daybreakers", author: "Louis L'Amour", year: 1960, description: "Two brothers become lawmen in the West.", genres: ["western", "adventure", "fiction"], rating: 4.0 },
-  { title: "Sackett's Land", author: "Louis L'Amour", year: 1974, description: "The origin story of the Sackett family.", genres: ["western", "historical", "fiction"], rating: 4.1 },
-  { title: "To the Far Blue Mountains", author: "Louis L'Amour", year: 1976, description: "Barnabas Sackett explores the American wilderness.", genres: ["western", "historical", "fiction"], rating: 4.0 },
-  { title: "The Warrior's Path", author: "Louis L'Amour", year: 1980, description: "Kin Sackett becomes a warrior and scout.", genres: ["western", "historical", "fiction"], rating: 4.1 },
-  { title: "Jubal Sackett", author: "Louis L'Amour", year: 1985, description: "Jubal Sackett explores the western frontier.", genres: ["western", "historical", "fiction"], rating: 4.0 },
-  { title: "Ride the River", author: "Louis L'Amour", year: 1983, description: "Echo Sackett travels to Philadelphia to claim her inheritance.", genres: ["western", "adventure", "fiction"], rating: 4.1 },
-  { title: "The Sackett Brand", author: "Louis L'Amour", year: 1965, description: "Tell Sackett is hunted by a powerful family.", genres: ["western", "adventure", "fiction"], rating: 4.0 },
-  { title: "The Sky-Liners", author: "Louis L'Amour", year: 1967, description: "Flagan and Galloway Sackett escort a herd of cattle.", genres: ["western", "adventure", "fiction"], rating: 4.1 },
-  { title: "The Man from the Broken Hills", author: "Louis L'Amour", year: 1975, description: "Milo Talon searches for a missing man.", genres: ["western", "adventure", "fiction"], rating: 4.0 },
-  
-  // Phase 2: Specialized & Niche Genres
-  // Graphic Novels & Comics (30-40 books)
-  // Award-Winning Graphic Novels
-  { title: "Watchmen", author: "Alan Moore", year: 1987, description: "A deconstruction of the superhero genre.", genres: ["graphic novel", "superhero", "fiction"], rating: 4.6 },
-  { title: "Maus", author: "Art Spiegelman", year: 1986, description: "A Holocaust survivor's story told through anthropomorphic animals.", genres: ["graphic novel", "memoir", "history", "non-fiction"], rating: 4.7 },
-  { title: "Persepolis", author: "Marjane Satrapi", year: 2000, description: "A memoir of growing up during the Iranian Revolution.", genres: ["graphic novel", "memoir", "history", "non-fiction"], rating: 4.4 },
-  { title: "Fun Home", author: "Alison Bechdel", year: 2006, description: "A family tragicomic about coming out and family secrets.", genres: ["graphic novel", "memoir", "lgbtq", "non-fiction"], rating: 4.3 },
-  { title: "Blankets", author: "Craig Thompson", year: 2003, description: "A coming-of-age story about first love and faith.", genres: ["graphic novel", "memoir", "romance", "non-fiction"], rating: 4.2 },
-  { title: "American Born Chinese", author: "Gene Luen Yang", year: 2006, description: "A story about cultural identity and acceptance.", genres: ["graphic novel", "young adult", "cultural", "fiction"], rating: 4.1 },
-  { title: "Ghost World", author: "Daniel Clowes", year: 1997, description: "Two teenage girls navigate post-high school life.", genres: ["graphic novel", "coming-of-age", "fiction"], rating: 4.0 },
-  { title: "Jimmy Corrigan, the Smartest Kid on Earth", author: "Chris Ware", year: 2000, description: "A complex story about family relationships.", genres: ["graphic novel", "literary", "fiction"], rating: 4.1 },
-  { title: "Palestine", author: "Joe Sacco", year: 1993, description: "A journalistic graphic novel about the Palestinian territories.", genres: ["graphic novel", "journalism", "history", "non-fiction"], rating: 4.2 },
-  { title: "Safe Area Gorazde", author: "Joe Sacco", year: 2000, description: "A war correspondent's account of the Bosnian War.", genres: ["graphic novel", "journalism", "war", "non-fiction"], rating: 4.1 },
-  
-  // Modern Graphic Novels
-  { title: "Saga", author: "Brian K. Vaughan", year: 2012, description: "A space opera about a family on the run.", genres: ["graphic novel", "sci-fi", "fantasy", "fiction"], rating: 4.5 },
-  { title: "Y: The Last Man", author: "Brian K. Vaughan", year: 2002, description: "The last man on Earth after a global catastrophe.", genres: ["graphic novel", "sci-fi", "post-apocalyptic", "fiction"], rating: 4.3 },
-  { title: "Ex Machina", author: "Brian K. Vaughan", year: 2004, description: "A superhero becomes mayor of New York City.", genres: ["graphic novel", "superhero", "political", "fiction"], rating: 4.2 },
-  { title: "Paper Girls", author: "Brian K. Vaughan", year: 2015, description: "Four paper delivery girls encounter time travelers.", genres: ["graphic novel", "sci-fi", "young adult", "fiction"], rating: 4.1 },
-  { title: "The Walking Dead", author: "Robert Kirkman", year: 2003, description: "A group of survivors in a zombie apocalypse.", genres: ["graphic novel", "horror", "post-apocalyptic", "fiction"], rating: 4.4 },
-  { title: "Invincible", author: "Robert Kirkman", year: 2003, description: "A teenage superhero discovers his true heritage.", genres: ["graphic novel", "superhero", "young adult", "fiction"], rating: 4.2 },
-  { title: "Bone", author: "Jeff Smith", year: 1991, description: "Three cartoon cousins explore a mysterious valley.", genres: ["graphic novel", "fantasy", "adventure", "fiction"], rating: 4.3 },
-  { title: "Scott Pilgrim vs. the World", author: "Bryan Lee O'Malley", year: 2004, description: "A slacker must defeat his girlfriend's seven evil exes.", genres: ["graphic novel", "romance", "comedy", "fiction"], rating: 4.1 },
-  { title: "Seconds", author: "Bryan Lee O'Malley", year: 2014, description: "A chef discovers she can fix her mistakes with magic mushrooms.", genres: ["graphic novel", "fantasy", "coming-of-age", "fiction"], rating: 4.0 },
-  { title: "Lost at Sea", author: "Bryan Lee O'Malley", year: 2003, description: "A teenage girl takes a road trip to find her soul.", genres: ["graphic novel", "coming-of-age", "fiction"], rating: 3.9 },
-  
-  // Travel & Geography (25-35 books)
-  // Travel Literature
-  { title: "A Walk in the Woods", author: "Bill Bryson", year: 1998, description: "Rediscovering America on the Appalachian Trail.", genres: ["travel", "memoir", "humor", "non-fiction"], rating: 4.3 },
-  { title: "In a Sunburned Country", author: "Bill Bryson", year: 2000, description: "Traveling through Australia.", genres: ["travel", "memoir", "humor", "non-fiction"], rating: 4.2 },
-  { title: "Notes from a Small Island", author: "Bill Bryson", year: 1995, description: "Traveling through Britain.", genres: ["travel", "memoir", "humor", "non-fiction"], rating: 4.1 },
-  { title: "The Lost Continent", author: "Bill Bryson", year: 1989, description: "Travels in small-town America.", genres: ["travel", "memoir", "humor", "non-fiction"], rating: 4.0 },
-  { title: "Neither Here Nor There", author: "Bill Bryson", year: 1991, description: "Travels in Europe.", genres: ["travel", "memoir", "humor", "non-fiction"], rating: 4.1 },
-  { title: "The Great Railway Bazaar", author: "Paul Theroux", year: 1975, description: "By train through Asia.", genres: ["travel", "memoir", "non-fiction"], rating: 4.2 },
-  { title: "The Old Patagonian Express", author: "Paul Theroux", year: 1979, description: "By train through the Americas.", genres: ["travel", "memoir", "non-fiction"], rating: 4.1 },
-  { title: "Dark Star Safari", author: "Paul Theroux", year: 2002, description: "Overland from Cairo to Cape Town.", genres: ["travel", "memoir", "non-fiction"], rating: 4.0 },
-  { title: "The Tao of Travel", author: "Paul Theroux", year: 2011, description: "Enlightenments from lives on the road.", genres: ["travel", "philosophy", "non-fiction"], rating: 4.1 },
-  { title: "Ghost Train to the Eastern Star", author: "Paul Theroux", year: 2008, description: "On the tracks of the Great Railway Bazaar.", genres: ["travel", "memoir", "non-fiction"], rating: 4.0 },
-  
-  // Classic Travel Literature
-  { title: "The Travels of Marco Polo", author: "Marco Polo", year: 1300, description: "A Venetian merchant's journey to China.", genres: ["travel", "history", "memoir", "non-fiction"], rating: 4.1 },
-  { title: "Gulliver's Travels", author: "Jonathan Swift", year: 1726, description: "A satirical novel about travel to strange lands.", genres: ["travel", "satire", "fantasy", "fiction"], rating: 4.2 },
-  { title: "Around the World in Eighty Days", author: "Jules Verne", year: 1872, description: "A gentleman's wager to circumnavigate the globe.", genres: ["travel", "adventure", "sci-fi", "fiction"], rating: 4.1 },
-  { title: "Journey to the Center of the Earth", author: "Jules Verne", year: 1864, description: "An expedition to the Earth's core.", genres: ["travel", "adventure", "sci-fi", "fiction"], rating: 4.0 },
-  { title: "Twenty Thousand Leagues Under the Sea", author: "Jules Verne", year: 1870, description: "A submarine voyage around the world.", genres: ["travel", "adventure", "sci-fi", "fiction"], rating: 4.2 },
-  { title: "The Kon-Tiki Expedition", author: "Thor Heyerdahl", year: 1948, description: "By raft across the Pacific Ocean.", genres: ["travel", "adventure", "memoir", "non-fiction"], rating: 4.3 },
-  { title: "The Long Walk", author: "Slavomir Rawicz", year: 1956, description: "A true story of escape from a Siberian labor camp.", genres: ["travel", "memoir", "history", "non-fiction"], rating: 4.2 },
-  { title: "Into the Wild", author: "Jon Krakauer", year: 1996, description: "The story of Christopher McCandless's Alaskan adventure.", genres: ["travel", "memoir", "adventure", "non-fiction"], rating: 4.3 },
-  { title: "Wild", author: "Cheryl Strayed", year: 2012, description: "A woman hikes the Pacific Crest Trail alone.", genres: ["travel", "memoir", "adventure", "non-fiction"], rating: 4.2 },
-  { title: "Eat, Pray, Love", author: "Elizabeth Gilbert", year: 2006, description: "One woman's search for everything across Italy, India, and Indonesia.", genres: ["travel", "memoir", "spiritual", "non-fiction"], rating: 4.1 },
-  
-  // Science & Technology (25-35 books)
-  // Popular Science
-  { title: "A Brief History of Time", author: "Stephen Hawking", year: 1988, description: "From the Big Bang to Black Holes.", genres: ["science", "physics", "cosmology", "non-fiction"], rating: 4.4 },
-  { title: "The Universe in a Nutshell", author: "Stephen Hawking", year: 2001, description: "A sequel to A Brief History of Time.", genres: ["science", "physics", "cosmology", "non-fiction"], rating: 4.2 },
-  { title: "The Grand Design", author: "Stephen Hawking", year: 2010, description: "New answers to the ultimate questions of life.", genres: ["science", "physics", "philosophy", "non-fiction"], rating: 4.1 },
-  { title: "Cosmos", author: "Carl Sagan", year: 1980, description: "A personal voyage through the universe.", genres: ["science", "astronomy", "cosmology", "non-fiction"], rating: 4.5 },
-  { title: "The Demon-Haunted World", author: "Carl Sagan", year: 1995, description: "Science as a candle in the dark.", genres: ["science", "skepticism", "philosophy", "non-fiction"], rating: 4.3 },
-  { title: "Contact", author: "Carl Sagan", year: 1985, description: "A novel about first contact with extraterrestrial life.", genres: ["science", "sci-fi", "fiction"], rating: 4.2 },
-  { title: "The Selfish Gene", author: "Richard Dawkins", year: 1976, description: "A new look at evolution.", genres: ["science", "biology", "evolution", "non-fiction"], rating: 4.4 },
-  { title: "The Blind Watchmaker", author: "Richard Dawkins", year: 1986, description: "Why the evidence of evolution reveals a universe without design.", genres: ["science", "biology", "evolution", "non-fiction"], rating: 4.3 },
-  { title: "The God Delusion", author: "Richard Dawkins", year: 2006, description: "A critique of religion and belief in God.", genres: ["science", "philosophy", "religion", "non-fiction"], rating: 4.2 },
-  { title: "The Ancestor's Tale", author: "Richard Dawkins", year: 2004, description: "A pilgrimage to the dawn of evolution.", genres: ["science", "biology", "evolution", "non-fiction"], rating: 4.1 },
-  
-  // Modern Science & Technology
-  { title: "Astrophysics for People in a Hurry", author: "Neil deGrasse Tyson", year: 2017, description: "A concise introduction to the universe.", genres: ["science", "astrophysics", "cosmology", "non-fiction"], rating: 4.3 },
-  { title: "Death by Black Hole", author: "Neil deGrasse Tyson", year: 2007, description: "And other cosmic quandaries.", genres: ["science", "astrophysics", "cosmology", "non-fiction"], rating: 4.2 },
-  { title: "Space Chronicles", author: "Neil deGrasse Tyson", year: 2012, description: "Facing the ultimate frontier.", genres: ["science", "space", "technology", "non-fiction"], rating: 4.1 },
-  { title: "The Elegant Universe", author: "Brian Greene", year: 1999, description: "Superstrings, hidden dimensions, and the quest for the ultimate theory.", genres: ["science", "physics", "string theory", "non-fiction"], rating: 4.3 },
-  { title: "The Fabric of the Cosmos", author: "Brian Greene", year: 2004, description: "Space, time, and the texture of reality.", genres: ["science", "physics", "cosmology", "non-fiction"], rating: 4.2 },
-  { title: "The Hidden Reality", author: "Brian Greene", year: 2011, description: "Parallel universes and the deep laws of the cosmos.", genres: ["science", "physics", "multiverse", "non-fiction"], rating: 4.1 },
-  { title: "The Innovators", author: "Walter Isaacson", year: 2014, description: "How a group of hackers, geniuses, and geeks created the digital revolution.", genres: ["science", "technology", "history", "non-fiction"], rating: 4.3 },
-  { title: "Steve Jobs", author: "Walter Isaacson", year: 2011, description: "The exclusive biography of the Apple co-founder.", genres: ["biography", "technology", "business", "non-fiction"], rating: 4.4 },
-  { title: "Leonardo da Vinci", author: "Walter Isaacson", year: 2017, description: "The biography of the Renaissance genius.", genres: ["biography", "art", "science", "non-fiction"], rating: 4.3 },
-  { title: "Einstein", author: "Walter Isaacson", year: 2007, description: "His life and universe.", genres: ["biography", "science", "physics", "non-fiction"], rating: 4.4 },
-  
-  // Art & Music (20-30 books)
-  // Art History & Theory
-  { title: "The Story of Art", author: "E.H. Gombrich", year: 1950, description: "A comprehensive history of art from prehistoric times to the present.", genres: ["art", "history", "non-fiction"], rating: 4.4 },
-  { title: "Ways of Seeing", author: "John Berger", year: 1972, description: "A revolutionary look at how we view art.", genres: ["art", "criticism", "philosophy", "non-fiction"], rating: 4.3 },
-  { title: "The Art Book", author: "Phaidon Press", year: 1994, description: "A comprehensive guide to 500 great painters and sculptors.", genres: ["art", "reference", "non-fiction"], rating: 4.2 },
-  { title: "The Lives of the Artists", author: "Giorgio Vasari", year: 1550, description: "Biographies of Italian Renaissance artists.", genres: ["art", "biography", "history", "non-fiction"], rating: 4.1 },
-  { title: "The Agony and the Ecstasy", author: "Irving Stone", year: 1961, description: "A biographical novel about Michelangelo.", genres: ["art", "biography", "historical fiction"], rating: 4.2 },
-  { title: "Lust for Life", author: "Irving Stone", year: 1934, description: "A biographical novel about Vincent van Gogh.", genres: ["art", "biography", "historical fiction"], rating: 4.1 },
-  { title: "The Painted Word", author: "Tom Wolfe", year: 1975, description: "A critique of modern art theory.", genres: ["art", "criticism", "non-fiction"], rating: 4.0 },
-  { title: "Art and Illusion", author: "E.H. Gombrich", year: 1960, description: "A study in the psychology of pictorial representation.", genres: ["art", "psychology", "non-fiction"], rating: 4.1 },
-  { title: "The Power of Images", author: "David Freedberg", year: 1989, description: "Studies in the history and theory of response.", genres: ["art", "psychology", "history", "non-fiction"], rating: 4.0 },
-  { title: "Art Since 1900", author: "Hal Foster", year: 2004, description: "Modernism, antimodernism, postmodernism.", genres: ["art", "history", "modern art", "non-fiction"], rating: 4.1 },
-  
-  // Music & Musician Biographies
-  { title: "Mozart: A Life", author: "Paul Johnson", year: 2013, description: "A concise biography of the musical genius.", genres: ["music", "biography", "classical", "non-fiction"], rating: 4.2 },
-  { title: "Beethoven: Anguish and Triumph", author: "Jan Swafford", year: 2014, description: "A comprehensive biography of the composer.", genres: ["music", "biography", "classical", "non-fiction"], rating: 4.3 },
-  { title: "Bach: Music in the Castle of Heaven", author: "John Eliot Gardiner", year: 2013, description: "A biography of Johann Sebastian Bach.", genres: ["music", "biography", "classical", "non-fiction"], rating: 4.1 },
-  { title: "The Beatles", author: "Hunter Davies", year: 1968, description: "The authorized biography of the Fab Four.", genres: ["music", "biography", "rock", "non-fiction"], rating: 4.2 },
-  { title: "Bob Dylan: Chronicles", author: "Bob Dylan", year: 2004, description: "Volume One of the musician's autobiography.", genres: ["music", "autobiography", "folk", "non-fiction"], rating: 4.3 },
-  { title: "Just Kids", author: "Patti Smith", year: 2010, description: "A memoir of friendship with Robert Mapplethorpe.", genres: ["music", "memoir", "art", "non-fiction"], rating: 4.4 },
-  { title: "Life", author: "Keith Richards", year: 2010, description: "The autobiography of the Rolling Stones guitarist.", genres: ["music", "autobiography", "rock", "non-fiction"], rating: 4.2 },
-  { title: "Clapton", author: "Eric Clapton", year: 2007, description: "The autobiography of the guitar legend.", genres: ["music", "autobiography", "rock", "non-fiction"], rating: 4.1 },
-  { title: "Scar Tissue", author: "Anthony Kiedis", year: 2004, description: "The autobiography of the Red Hot Chili Peppers frontman.", genres: ["music", "autobiography", "rock", "non-fiction"], rating: 4.0 },
-  { title: "The Dirt", author: "Mötley Crüe", year: 2001, description: "Confessions of the world's most notorious rock band.", genres: ["music", "autobiography", "rock", "non-fiction"], rating: 4.1 }
-];
-
-// Comprehensive movie dataset
+// Comprehensive movie dataset (books: `COMPREHENSIVE_BOOK_DATA` from `data/enriched_books_catalog.json`)
 export const COMPREHENSIVE_MOVIE_DATA = [
   // Adventure Movies
   { title: "Jurassic World: Dominion", author: "Colin Trevorrow", year: 2022, description: "Final installment in the Jurassic World trilogy.", genres: ["adventure", "action", "sci-fi"], rating: 4.0, isBook: false },
@@ -2570,10 +1495,20 @@ export default function SuggestionsScreen() {
   
   const { settings } = useAppSettings();
   const { interests } = useUserInterests();
+  const { features } = useSubscription();
   const { getPreloadedMovies, getPreloadedBooks } = usePreloadedData();
   
   // Define isDark constant to fix the ReferenceError
   const isDark = false;
+  const llmProxyConfigured = Boolean(
+    typeof LLM_PROXY_BASE_URL === 'string' && LLM_PROXY_BASE_URL.trim().length > 0
+  );
+  /** Env + proxy URL; in __DEV__ we show the UI when the proxy URL is set even if assist flag is off. */
+  const llmAssistConfigured =
+    llmProxyConfigured && (ENABLE_LLM_ASSIST || __DEV__);
+  /** Premium (or dev) can call the proxy; free production users see the field but not live refine. */
+  const llmRefineEnabled =
+    llmAssistConfigured && (features.canUseLLM || __DEV__);
   
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');
   const [sortBy, setSortBy] = useState<SortOption>('confidence');
@@ -2597,55 +1532,174 @@ export default function SuggestionsScreen() {
   const [successAnimation, setSuccessAnimation] = useState<Set<string>>(new Set());
   const [immediateFeedback, setImmediateFeedback] = useState<Set<string>>(new Set());
 
-  // Real-time processing state
-  const [sessionData, setSessionData] = useState<{
-    startTime: Date;
-    interactions: Array<{
-      type: 'view' | 'add' | 'dismiss' | 'search' | 'filter';
-      itemId?: string;
-      timestamp: Date;
-      metadata?: any;
-    }>;
-    currentContext: {
-      activeFilter: FilterOption;
-  
-      sortBy: SortOption;
-      timeOfDay: string;
-      sessionDuration: number;
-    };
-  }>({
-    startTime: new Date(),
-    interactions: [],
-    currentContext: {
-      activeFilter: 'all',
-      
-      sortBy: 'confidence',
-      timeOfDay: (() => {
-        const hour = new Date().getHours();
-        if (hour >= 5 && hour < 12) return 'morning';
-        if (hour >= 12 && hour < 17) return 'afternoon';
-        if (hour >= 17 && hour < 21) return 'evening';
-        return 'night';
-      })(),
-      sessionDuration: 0
-    }
-  });
-
-  const [realTimeSuggestions, setRealTimeSuggestions] = useState<Suggestion[]>([]);
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
-  const [isRealTimeProcessing, setIsRealTimeProcessing] = useState(false);
-  const [userBehaviorMetrics, setUserBehaviorMetrics] = useState<{
-    viewTime: Map<string, number>;
-    interactionPatterns: Map<string, number>;
-    preferenceChanges: Map<string, number>;
-  }>({
-    viewTime: new Map(),
-    interactionPatterns: new Map(),
-    preferenceChanges: new Map()
-  });
-
+  const [llmRefineStatus, setLlmRefineStatus] = useState<string | null>(null);
+  const [llmBookRefineContext, setLlmBookRefineContext] = useState('');
+  const [llmMovieRefineContext, setLlmMovieRefineContext] = useState('');
+  const [llmAssistPanelTab, setLlmAssistPanelTab] = useState<LlmAssistPanelTab>('refine-books');
   // Force re-render when data store updates
   const [localForceUpdate, setLocalForceUpdate] = useState(0);
+
+  useEffect(() => {
+    const loadStoredLlmContext = async () => {
+      try {
+        const [booksStored, moviesStored, legacyStored] = await Promise.all([
+          AsyncStorage.getItem(PREMIUM_SUGGESTION_CONTEXT_BOOKS_KEY),
+          AsyncStorage.getItem(PREMIUM_SUGGESTION_CONTEXT_MOVIES_KEY),
+          AsyncStorage.getItem(PREMIUM_SUGGESTION_CONTEXT_LEGACY_KEY),
+        ]);
+        if (typeof booksStored === 'string' && booksStored.length > 0) {
+          setLlmBookRefineContext(booksStored.slice(0, 120));
+        } else if (typeof legacyStored === 'string' && legacyStored.length > 0) {
+          setLlmBookRefineContext(legacyStored.slice(0, 120));
+        }
+        if (typeof moviesStored === 'string' && moviesStored.length > 0) {
+          setLlmMovieRefineContext(moviesStored.slice(0, 120));
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to load premium suggestion context:', error);
+      }
+    };
+
+    loadStoredLlmContext();
+  }, []);
+
+  useEffect(() => {
+    const saveBookRefineContext = async () => {
+      try {
+        const value = llmBookRefineContext.trim();
+        if (value.length === 0) {
+          await AsyncStorage.removeItem(PREMIUM_SUGGESTION_CONTEXT_BOOKS_KEY);
+          return;
+        }
+        await AsyncStorage.setItem(PREMIUM_SUGGESTION_CONTEXT_BOOKS_KEY, value.slice(0, 120));
+      } catch (error) {
+        console.warn('⚠️ Failed to save book refine context:', error);
+      }
+    };
+
+    saveBookRefineContext();
+  }, [llmBookRefineContext]);
+
+  useEffect(() => {
+    const saveMovieRefineContext = async () => {
+      try {
+        const value = llmMovieRefineContext.trim();
+        if (value.length === 0) {
+          await AsyncStorage.removeItem(PREMIUM_SUGGESTION_CONTEXT_MOVIES_KEY);
+          return;
+        }
+        await AsyncStorage.setItem(PREMIUM_SUGGESTION_CONTEXT_MOVIES_KEY, value.slice(0, 120));
+      } catch (error) {
+        console.warn('⚠️ Failed to save movie refine context:', error);
+      }
+    };
+
+    saveMovieRefineContext();
+  }, [llmMovieRefineContext]);
+
+  const buildSuggestionsRefinePayload = (
+    candidates: Suggestion[],
+    refineText: string
+  ): SuggestionsRefineRequest | null => {
+    if (!candidates.length) return null;
+
+    const tasteSnap = buildTasteProfileSnapshot(books, movies);
+
+    const topCandidates = pickCandidatesForLlmRefine(candidates, LLM_REFINE_TOP_N);
+
+    const preferredGenres =
+      Array.isArray(interests?.favoriteGenres)
+        ? interests.favoriteGenres.slice(0, 6).map((g: string) => String(g).toLowerCase())
+        : [];
+
+    const listSignals = buildListTasteSignals(books, movies);
+    const recentAuthors = listSignals.topAuthors.slice(0, 6);
+
+    const hasBook = topCandidates.some((c) => c.isBook);
+    const hasMovie = topCandidates.some((c) => !c.isBook);
+    let mediaType: SuggestionsMediaType = 'mixed';
+    if (activeFilter === 'movies') mediaType = 'movie';
+    else if (activeFilter === 'books') mediaType = 'book';
+    else if (!hasBook && hasMovie) mediaType = 'movie';
+    else if (hasBook && !hasMovie) mediaType = 'book';
+    else if (hasBook && hasMovie) mediaType = 'mixed';
+
+    const mediaCandidates = topCandidates.map((c) => {
+      const similarTo =
+        c.category === 'semantic'
+          ? c.reason.match(/^Semantically similar to "(.+)"$/)?.[1]
+          : undefined;
+      return {
+        id: c.id,
+        title: c.title,
+        author: c.author,
+        year: c.year,
+        genres: c.genres || [],
+        rating: c.rating || 0,
+        estimatedLength: c.estimatedLength || 'medium',
+        confidence: c.confidence || 0,
+        isBook: c.isBook,
+        ...(similarTo ? { similarToTitle: similarTo.slice(0, 80) } : {}),
+      };
+    });
+
+    if (!mediaCandidates.length) return null;
+
+    const refineMood = extractMoodSignals(refineText);
+    const refineMoodActive = moodSignalsAreActionable(refineMood);
+
+    return {
+      mediaType,
+      mode: 'rerank',
+      maxResults: mediaCandidates.length,
+      richTopThree: true,
+      userFeatures: {
+        preferredGenres,
+        avoidGenres: [],
+        lengthPreference:
+          activeFilter === 'short' || activeFilter === 'medium' || activeFilter === 'long'
+            ? activeFilter
+            : 'any',
+        minRating: 0,
+        recentAuthors,
+        additionalContext: refineText.trim() || undefined,
+      },
+      sessionSignals: {
+        activeFilter,
+        sortBy,
+        recentInteractions: [],
+      },
+      candidates: mediaCandidates,
+      userSummary: {
+        topRated: tasteSnap.topRated,
+        aggregates: tasteSnap.aggregates,
+        ...(tasteProfileNarrative?.trim()
+          ? {
+              tasteNarrative: finalizeTasteNarrative(tasteProfileNarrative).slice(
+                0,
+                TASTE_NARRATIVE_REFINE_MAX_CHARS
+              ),
+            }
+          : {}),
+      },
+      lovedHighlights: orderLovedHighlightsForRefine(
+        tasteSnap.lovedHighlights,
+        refineMoodActive ? refineMood : null
+      ),
+      ...(refineMoodActive && refineMood
+        ? {
+            refineContext: {
+              phrase: refineText.trim().slice(0, 120),
+              primaryTitleAnchors: refineMood.titleAnchors,
+              secondaryAuthorAnchors: refineMood.authorAnchors,
+              primaryGenreSlugs: refineMood.genreSlugs,
+            },
+          }
+        : {}),
+      includeFormatSuggestions: shouldIncludeFormatSuggestion(tasteSnap),
+    };
+  };
 
   // Handle saving items from the Add/Edit modal
   const handleSaveItem = (formData: any) => {
@@ -2816,30 +1870,19 @@ export default function SuggestionsScreen() {
     }
   }, [movies]);
 
-  // Track filter changes for real-time processing
-  useEffect(() => {
-    if (activeFilter !== 'all') {
-      trackUserInteraction('filter', undefined, { filter: activeFilter });
-    }
-  }, [activeFilter]);
-
-  // Track search changes for real-time processing
-
-
-  // Track sort changes for real-time processing
-  useEffect(() => {
-    if (sortBy !== 'confidence') {
-      trackUserInteraction('filter', undefined, { sort: sortBy });
-    }
-  }, [sortBy]);
-
   // Refresh suggestions function
   const handleRefresh = () => {
+    if (isRefreshing) return;
+
     console.log('🔄 Refreshing suggestions...');
     setIsRefreshing(true);
     
     // Simulate refresh delay for better UX
-    setTimeout(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+
+    refreshTimeoutRef.current = setTimeout(() => {
       setLastRefreshTime(new Date());
       setLocalForceUpdate(prev => prev + 1);
       setIsRefreshing(false);
@@ -2848,6 +1891,14 @@ export default function SuggestionsScreen() {
     }, 1500);
   };
 
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Removed hard-coded getSimilarWorks - now using API exclusively
 
   // Removed hard-coded genreBooks array - now using API exclusively
@@ -2855,13 +1906,14 @@ export default function SuggestionsScreen() {
   // Removed hard-coded getAwardWinningBooks - now using API exclusively
 
   const estimatePages = (title: string): number => {
+    const safe = String(title ?? '');
     const basePages = 250;
-    const titleLength = title.length;
+    const titleLength = safe.length;
     return Math.round(basePages + (titleLength * 5) + Math.random() * 100);
   };
 
   const estimateLength = (title: string): 'short' | 'medium' | 'long' => {
-    const pages = estimatePages(title);
+    const pages = estimatePages(String(title ?? ''));
     if (pages < 200) return 'short';
     if (pages < 400) return 'medium';
     return 'long';
@@ -2886,267 +1938,23 @@ export default function SuggestionsScreen() {
     return getSeason(new Date().getMonth());
   };
 
-  // Real-time processing functions
-  const trackUserInteraction = (type: 'view' | 'add' | 'dismiss' | 'search' | 'filter', itemId?: string, metadata?: any) => {
-    const interaction = {
-      type,
-      itemId,
-      timestamp: new Date(),
-      metadata
-    };
-    
-    setSessionData(prev => ({
-      ...prev,
-      interactions: [...prev.interactions, interaction],
-      currentContext: {
-        ...prev.currentContext,
-        activeFilter,
-
-        sortBy,
-        timeOfDay: (() => {
-          const hour = new Date().getHours();
-          if (hour >= 5 && hour < 12) return 'morning';
-          if (hour >= 12 && hour < 17) return 'afternoon';
-          if (hour >= 17 && hour < 21) return 'evening';
-          return 'night';
-        })(),
-        sessionDuration: Date.now() - prev.startTime.getTime()
-      }
-    }));
-
-    // Update behavior metrics
-    setUserBehaviorMetrics(prev => {
-      const newPatterns = new Map(prev.interactionPatterns);
-      const patternKey = `${type}-${itemId || 'general'}`;
-      newPatterns.set(patternKey, (newPatterns.get(patternKey) || 0) + 1);
-      
-      return {
-        ...prev,
-        interactionPatterns: newPatterns
-      };
-    });
-
-    console.log(`🔄 Real-time interaction tracked: ${type}${itemId ? ` for ${itemId}` : ''}`);
-  };
-
-  const generateRealTimeSuggestions = async (baseSuggestions: Suggestion[]): Promise<Suggestion[]> => {
-    setIsRealTimeProcessing(true);
-    
-    try {
-      // Analyze session context for real-time adjustments
-      const sessionContext = sessionData.currentContext;
-      const recentInteractions = sessionData.interactions.slice(-5); // Last 5 interactions
-      
-      let adjustedSuggestions = [...baseSuggestions];
-      
-      // 1. Session-based filtering based on recent interactions
-      const recentGenres = new Set<string>();
-      const recentAuthors = new Set<string>();
-      
-      recentInteractions.forEach(interaction => {
-        if (interaction.type === 'add' && interaction.itemId) {
-          const addedItem = baseSuggestions.find(s => s.id === interaction.itemId);
-          if (addedItem) {
-            addedItem.genres?.forEach(genre => recentGenres.add(genre));
-            recentAuthors.add(addedItem.author);
-          }
-        }
-      });
-      
-      // 2. Time-of-day adjustments
-      const timeOfDayPreferences: { [key: string]: string[] } = {
-        morning: ['uplifting', 'motivational', 'educational'],
-        afternoon: ['engaging', 'entertaining', 'medium'],
-        evening: ['relaxing', 'entertaining', 'short'],
-        night: ['thrilling', 'mysterious', 'long']
-      };
-      
-      const currentTimePreferences = timeOfDayPreferences[sessionContext.timeOfDay] || [];
-      
-      // 3. Session duration adjustments
-      const sessionDuration = sessionContext.sessionDuration;
-      const isLongSession = sessionDuration > 300000; // 5 minutes
-      
-      // 4. Apply real-time adjustments
-      adjustedSuggestions = adjustedSuggestions.map(suggestion => {
-        let confidenceBoost = 0;
-        
-        // Boost confidence for items matching recent interactions
-        if (suggestion.genres?.some(genre => recentGenres.has(genre))) {
-          confidenceBoost += 15;
-        }
-        if (recentAuthors.has(suggestion.author)) {
-          confidenceBoost += 10;
-        }
-        
-        // Time-of-day boost
-        if (suggestion.description && currentTimePreferences.some(pref => 
-          suggestion.description!.toLowerCase().includes(pref)
-        )) {
-          confidenceBoost += 8;
-        }
-        
-        // Session duration boost (prefer shorter content in long sessions)
-        if (isLongSession && suggestion.estimatedLength === 'short') {
-          confidenceBoost += 5;
-        }
-        
-        // Recent interaction boost
-        const recentInteractionCount = recentInteractions.filter(i => 
-          i.type === 'view' && i.itemId === suggestion.id
-        ).length;
-        confidenceBoost += recentInteractionCount * 3;
-        
-        return {
-          ...suggestion,
-          confidence: Math.min(100, suggestion.confidence + confidenceBoost),
-          reason: `${suggestion.reason}${confidenceBoost > 0 ? ` (Real-time boost: +${confidenceBoost})` : ''}`
-        };
-      });
-      
-      // 5. Sort by adjusted confidence
-      adjustedSuggestions.sort((a, b) => b.confidence - a.confidence);
-      
-      console.log(`⚡ Real-time suggestions generated: ${adjustedSuggestions.length} items with session context`);
-      return adjustedSuggestions;
-      
-    } catch (error) {
-      console.error('❌ Error generating real-time suggestions:', error);
-      return baseSuggestions;
-    } finally {
-      setIsRealTimeProcessing(false);
-    }
-  };
-
-  const updateSessionContext = () => {
-    setSessionData(prev => ({
-      ...prev,
-      currentContext: {
-        ...prev.currentContext,
-        activeFilter,
-
-        sortBy,
-        timeOfDay: (() => {
-          const hour = new Date().getHours();
-          if (hour >= 5 && hour < 12) return 'morning';
-          if (hour >= 12 && hour < 17) return 'afternoon';
-          if (hour >= 17 && hour < 21) return 'evening';
-          return 'night';
-        })(),
-        sessionDuration: Date.now() - prev.startTime.getTime()
-      }
-    }));
-  };
-
-  // Synchronous version of real-time adjustments for useMemo
-  const applyRealTimeAdjustments = (baseSuggestions: Suggestion[]): Suggestion[] => {
-    try {
-      // Safety check for baseSuggestions
-      if (!Array.isArray(baseSuggestions)) {
-        console.warn('⚠️ baseSuggestions is not an array:', baseSuggestions);
-        return [];
-      }
-      
-      // Filter out invalid suggestions that might cause errors
-      const validSuggestions = baseSuggestions.filter(suggestion => 
-        suggestion && 
-        typeof suggestion === 'object' && 
-        suggestion.description !== undefined &&
-        typeof suggestion.description === 'string'
+  const genresForListItem = (item: {
+    title: string;
+    author: string;
+    genres?: string[] | null;
+  }): string[] => {
+    if (Array.isArray(item.genres)) {
+      const fromItem = item.genres.filter(
+        (g): g is string => typeof g === 'string' && g.trim().length > 0
       );
-      
-      if (validSuggestions.length !== baseSuggestions.length) {
-        console.warn(`⚠️ Filtered out ${baseSuggestions.length - validSuggestions.length} invalid suggestions`);
-      }
-      
-      // Use only valid suggestions
-      baseSuggestions = validSuggestions;
-      // Analyze session context for real-time adjustments
-      const sessionContext = sessionData.currentContext;
-      const recentInteractions = sessionData.interactions.slice(-5); // Last 5 interactions
-      
-      let adjustedSuggestions = [...baseSuggestions];
-      
-      // 1. Session-based filtering based on recent interactions
-      const recentGenres = new Set<string>();
-      const recentAuthors = new Set<string>();
-      
-      recentInteractions.forEach(interaction => {
-        if (interaction.type === 'add' && interaction.itemId) {
-          const addedItem = baseSuggestions.find(s => s.id === interaction.itemId);
-          if (addedItem) {
-            addedItem.genres?.forEach(genre => recentGenres.add(genre));
-            recentAuthors.add(addedItem.author);
-          }
-        }
-      });
-      
-      // 2. Time-of-day adjustments
-      const timeOfDayPreferences: { [key: string]: string[] } = {
-        morning: ['uplifting', 'motivational', 'educational'],
-        afternoon: ['engaging', 'entertaining', 'medium'],
-        evening: ['relaxing', 'entertaining', 'short'],
-        night: ['thrilling', 'mysterious', 'long']
-      };
-      
-      const currentTimePreferences = timeOfDayPreferences[sessionContext.timeOfDay] || [];
-      
-      // 3. Session duration adjustments
-      const sessionDuration = sessionContext.sessionDuration;
-      const isLongSession = sessionDuration > 300000; // 5 minutes
-      
-      // 4. Apply real-time adjustments
-      adjustedSuggestions = adjustedSuggestions.map(suggestion => {
-        let confidenceBoost = 0;
-        
-        // Boost confidence for items matching recent interactions
-        if (suggestion.genres?.some(genre => recentGenres.has(genre))) {
-          confidenceBoost += 15;
-        }
-        if (recentAuthors.has(suggestion.author)) {
-          confidenceBoost += 10;
-        }
-        
-        // Time-of-day boost
-        if (suggestion.description && currentTimePreferences.some(pref => 
-          suggestion.description!.toLowerCase().includes(pref)
-        )) {
-          confidenceBoost += 8;
-        }
-        
-        // Session duration boost (prefer shorter content in long sessions)
-        if (isLongSession && suggestion.estimatedLength === 'short') {
-          confidenceBoost += 5;
-        }
-        
-        // Recent interaction boost
-        const recentInteractionCount = recentInteractions.filter(i => 
-          i.type === 'view' && i.itemId === suggestion.id
-        ).length;
-        confidenceBoost += recentInteractionCount * 3;
-        
-        return {
-          ...suggestion,
-          confidence: Math.min(100, suggestion.confidence + confidenceBoost),
-          reason: `${suggestion.reason}${confidenceBoost > 0 ? ` (Real-time boost: +${confidenceBoost})` : ''}`
-        };
-      });
-      
-      // 5. Sort by adjusted confidence
-      adjustedSuggestions.sort((a, b) => b.confidence - a.confidence);
-      
-      console.log(`⚡ Real-time adjustments applied: ${adjustedSuggestions.length} items with session context`);
-      return adjustedSuggestions;
-      
-    } catch (error) {
-      console.error('❌ Error applying real-time adjustments:', error);
-      return baseSuggestions;
+      if (fromItem.length > 0) return fromItem;
     }
+    return inferGenres(item.title, item.author);
   };
 
   const inferGenres = (title: string, author: string): string[] => {
-    const lowerTitle = title.toLowerCase();
-    const lowerAuthor = author.toLowerCase();
+    const lowerTitle = String(title ?? '').toLowerCase();
+    const lowerAuthor = String(author ?? '').toLowerCase();
     
     const genres: string[] = [];
     
@@ -3410,9 +2218,107 @@ export default function SuggestionsScreen() {
     activeHours: [],
     lastInteractionTime: Date.now()
   });
+  const generationRequestIdRef = useRef(0);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Skip first run so we do not double-call generate with the books/movies effect on mount. */
+  const refineContextEffectPrimedRef = useRef(false);
+  const moodIntentBookRef = useRef<LlmMoodIntent | null>(null);
+  const moodIntentMovieRef = useRef<LlmMoodIntent | null>(null);
+  const [tasteProfileNarrative, setTasteProfileNarrative] = useState<string | null>(null);
+  const hasTasteSnapshot = Boolean(tasteProfileNarrative?.trim());
+  const showLlmAssistPanel = llmAssistConfigured || hasTasteSnapshot;
+
+  const normalizeSuggestion = (input: any, fallbackIndex: number): Suggestion | null => {
+    if (!input || typeof input !== 'object') return null;
+
+    const title = typeof input.title === 'string' ? input.title.trim() : '';
+    const author = typeof input.author === 'string' ? input.author.trim() : '';
+    if (!title || !author) return null;
+
+    const numericYear = Number(input.year);
+    const year =
+      Number.isFinite(numericYear) && numericYear > 0
+        ? Math.floor(numericYear)
+        : new Date().getFullYear();
+
+    const rawSource = String(input.source || '').toLowerCase();
+    const source: Suggestion['source'] =
+      rawSource === 'tmdb'
+        ? 'tmdb'
+        : (rawSource === 'googlebooks' || rawSource === 'api' || rawSource === 'openlibrary' || rawSource === 'nyt')
+          ? 'googlebooks'
+          : 'local';
+
+    const safeCategory: Suggestion['category'] = (
+      [
+        'adventure',
+        'literary',
+        'contemporary',
+        'award',
+        'search',
+        'genre',
+        'seasonal',
+        'trending',
+        'similar',
+        'author',
+        'mood',
+        'format',
+        'predictive',
+        'semantic',
+      ] as const
+    ).includes(input.category)
+      ? input.category
+      : 'genre';
+
+    const isBook = Boolean(input.isBook);
+    const format: Suggestion['format'] =
+      input.format === 'audio' || input.format === 'streaming' ? input.format : 'text';
+
+    const confidence = Math.max(0, Math.min(100, Number(input.confidence) || 60));
+    const rating = Math.max(0, Math.min(5, Number(input.rating) || 0));
+    const genres = Array.isArray(input.genres)
+      ? input.genres.filter((genre: unknown) => typeof genre === 'string' && genre.trim().length > 0)
+      : [];
+
+    return {
+      id:
+        typeof input.id === 'string' && input.id.trim().length > 0
+          ? input.id
+          : `normalized-${fallbackIndex}-${title.toLowerCase().replace(/\s+/g, '-')}`,
+      title,
+      author,
+      year,
+      format: isBook ? (format === 'streaming' ? 'text' : format) : 'streaming',
+      rating,
+      description: typeof input.description === 'string' ? input.description : '',
+      genres,
+      isBook,
+      source,
+      reason: typeof input.reason === 'string' && input.reason.trim() ? input.reason : 'Recommended for you',
+      confidence,
+      category: safeCategory,
+      estimatedPages: typeof input.estimatedPages === 'number' ? input.estimatedPages : undefined,
+      estimatedLength:
+        input.estimatedLength === 'short' || input.estimatedLength === 'medium' || input.estimatedLength === 'long'
+          ? input.estimatedLength
+          : estimateLength(title),
+      coverId: typeof input.coverId === 'number' ? input.coverId : undefined,
+      isbn: typeof input.isbn === 'string' ? input.isbn : undefined,
+      tmdbId: typeof input.tmdbId === 'number' ? input.tmdbId : undefined,
+      posterPath: typeof input.posterPath === 'string' ? input.posterPath : undefined,
+      mood: typeof input.mood === 'string' ? input.mood : undefined,
+      awards: Array.isArray(input.awards) ? input.awards : undefined,
+      weeksOnList: typeof input.weeksOnList === 'number' ? input.weeksOnList : undefined,
+      nlpAnalysis: input.nlpAnalysis,
+      semanticEmbedding: Array.isArray(input.semanticEmbedding) ? input.semanticEmbedding : undefined,
+      similarItems: Array.isArray(input.similarItems) ? input.similarItems : undefined,
+      semanticTags: Array.isArray(input.semanticTags) ? input.semanticTags : undefined,
+    };
+  };
 
   // Async function to generate suggestions
   const generateSuggestions = async (isLowCountRefresh: boolean = false) => {
+    const requestId = ++generationRequestIdRef.current;
     console.log('🔍 ===== GENERATE SUGGESTIONS CALLED =====');
     console.log('🔍 isLowCountRefresh:', isLowCountRefresh);
 
@@ -3428,7 +2334,35 @@ export default function SuggestionsScreen() {
     
     apiCache.set('last-suggestion-generation', { data: [], timestamp: now });
     setIsLoadingSuggestions(true);
+
+    try {
     const allSuggestions: Suggestion[] = [];
+
+    const bookMoodSignals: MoodSignals | null = extractMoodSignals(llmBookRefineContext);
+    const movieMoodSignals: MoodSignals | null = extractMoodSignals(llmMovieRefineContext);
+    const bookMoodActive = moodSignalsAreActionable(bookMoodSignals);
+    const movieMoodActive = moodSignalsAreActionable(movieMoodSignals);
+    const bookRefinePhrase = llmBookRefineContext.trim();
+    const movieRefinePhrase = llmMovieRefineContext.trim();
+    const anyMoodActive = bookMoodActive || movieMoodActive;
+    const listTasteSignals = buildListTasteSignals(books, movies);
+    const includeMovies = userHasMovieListActivity(movies) && activeFilter !== 'books';
+    const includeBooks = activeFilter !== 'movies';
+
+    const moodForMedia = (isBook: boolean) =>
+      isBook
+        ? {
+            signals: bookMoodSignals,
+            active: bookMoodActive,
+            phrase: bookRefinePhrase,
+            intent: moodIntentBookRef.current,
+          }
+        : {
+            signals: movieMoodSignals,
+            active: movieMoodActive,
+            phrase: movieRefinePhrase,
+            intent: moodIntentMovieRef.current,
+          };
     
 
 
@@ -3452,10 +2386,11 @@ export default function SuggestionsScreen() {
     
     // Analyze completed items
     [...completedBooks, ...completedMovies].forEach(item => {
+      const authorKey = typeof item.author === 'string' && item.author.trim() ? item.author.trim() : 'Unknown';
       // Author/Director preferences
       favoriteAuthors.set(
-        item.author, 
-        (favoriteAuthors.get(item.author) || 0) + (item.rating || 3)
+        authorKey,
+        (favoriteAuthors.get(authorKey) || 0) + (item.rating || 3)
       );
 
       // Format preferences
@@ -3466,8 +2401,8 @@ export default function SuggestionsScreen() {
         );
       }
 
-      // Genre analysis
-      const itemGenres = inferGenres(item.title, item.author);
+      // Genre analysis (use stored genres on movies when available)
+      const itemGenres = genresForListItem(item);
       itemGenres.forEach(genre => {
         favoriteGenres.set(
           genre,
@@ -3476,8 +2411,8 @@ export default function SuggestionsScreen() {
       });
 
       // Enhanced mood analysis from notes
-      if (item.notes) {
-        const notes = item.notes.toLowerCase();
+      if (item.notes != null && String(item.notes).trim()) {
+        const notes = String(item.notes).toLowerCase();
         
         // Emotional moods
         if (notes.includes('inspiring') || notes.includes('uplifting') || notes.includes('motivational') || notes.includes('empowering')) {
@@ -3547,9 +2482,24 @@ export default function SuggestionsScreen() {
       topGenres = interests.favoriteGenres.map(genre => [genre, 8]); // Default high score for user interests
     }
 
-    // Ensure Adventure is always included for variety
-    const genresToFetch = new Set([...topGenres.map(([genre]) => genre)]);
-    if (!genresToFetch.has('Adventure')) {
+    const genresToFetch = new Set<string>([...topGenres.map(([genre]) => genre)]);
+    if (bookMoodSignals?.genreSlugs?.length) {
+      for (const slug of bookMoodSignals.genreSlugs.slice(0, 5)) {
+        genresToFetch.add(slug);
+      }
+    }
+    if (movieMoodSignals?.genreSlugs?.length) {
+      for (const slug of movieMoodSignals.genreSlugs.slice(0, 5)) {
+        genresToFetch.add(slug);
+      }
+    }
+    if (bookMoodSignals?.genreSlugs?.length || movieMoodSignals?.genreSlugs?.length) {
+      console.log('🎯 Refine picks: prioritizing genres', [
+        ...(bookMoodSignals?.genreSlugs?.slice(0, 5) ?? []),
+        ...(movieMoodSignals?.genreSlugs?.slice(0, 5) ?? []),
+      ]);
+    }
+    if (!anyMoodActive && !genresToFetch.has('Adventure')) {
       genresToFetch.add('Adventure');
       console.log('🏔️ Adding Adventure as default genre for variety');
     }
@@ -3557,29 +2507,83 @@ export default function SuggestionsScreen() {
     // Use API for genre suggestions instead of hard-coded data
     for (const genre of genresToFetch) {
       const score = favoriteGenres.get(genre) || 5; // Default score for Adventure
-      try {
-        const genreSuggestions = await getEnhancedGenreSuggestions(genre, isLowCountRefresh);
-        genreSuggestions.slice(0, 3).forEach((book, index) => {
-          allSuggestions.push({
-            id: `genre-${genre}-${index}`,
-            title: book.title,
-            author: book.author,
-            year: book.year,
-            isBook: true, // Genre suggestions are primarily books
-            reason: `Because you enjoy ${genre} books`,
-            confidence: Math.min(90, 65 + (score / 5) * 10),
-            category: 'genre' as const,
-            format: book.format,
-            rating: book.rating,
-            description: book.description,
-            estimatedPages: estimatePages(book.title),
-            estimatedLength: estimateLength(book.title),
-            genres: [genre],
-            source: book.source || 'api',
+      if (includeBooks) {
+        try {
+          const genreSuggestions = await getEnhancedGenreSuggestions(
+            genre,
+            isLowCountRefresh,
+            bookMoodSignals
+          );
+          genreSuggestions.slice(0, 3).forEach((book, index) => {
+            allSuggestions.push({
+              id: `genre-book-${genre}-${index}`,
+              title: book.title,
+              author: book.author,
+              year: book.year,
+              isBook: true,
+              reason: buildListTasteReason(
+                { title: book.title, author: book.author, genres: [genre] },
+                listTasteSignals,
+                {
+                  refinePhrase: bookMoodActive ? bookRefinePhrase : undefined,
+                  refineGenreSlugs: bookMoodSignals?.genreSlugs,
+                }
+              ),
+              confidence: Math.min(90, 65 + (score / 5) * 10),
+              category: 'genre' as const,
+              format: book.format,
+              rating: book.rating,
+              description: book.description,
+              estimatedPages: estimatePages(book.title),
+              estimatedLength: estimateLength(book.title),
+              genres: [genre],
+              source: book.source || 'api',
+            });
           });
-        });
-      } catch (error) {
-        console.warn(`Failed to fetch ${genre} suggestions from API:`, error);
+        } catch (error) {
+          console.warn(`Failed to fetch ${genre} book suggestions from API:`, error);
+        }
+      }
+      if (includeMovies) {
+        try {
+          const movieGenre = bookGenreToMovieCatalogGenre(String(genre));
+          const moviePicks = await fetchMoviesFromHardCodedData(movieGenre, 2, movieMoodSignals);
+          moviePicks.forEach((movie, index) => {
+            const genreList = Array.isArray(movie.genres) ? movie.genres : [genre];
+            allSuggestions.push({
+              id: `genre-movie-${genre}-${index}`,
+              title: movie.title,
+              author: movie.author,
+              year: movie.year,
+              isBook: false,
+              reason: buildListTasteReason(
+                { title: movie.title, author: movie.author, genres: genreList },
+                listTasteSignals,
+                {
+                  refinePhrase: movieMoodActive ? movieRefinePhrase : undefined,
+                  refineGenreSlugs: movieMoodSignals?.genreSlugs,
+                }
+              ),
+              confidence: Math.min(
+                90,
+                68 +
+                  listTasteMatchScore(
+                    { title: movie.title, author: movie.author, genres: genreList },
+                    listTasteSignals
+                  )
+              ),
+              category: 'genre' as const,
+              format: movie.format,
+              rating: movie.rating,
+              description: movie.description,
+              estimatedLength: estimateLength(movie.title),
+              genres: genreList,
+              source: movie.source || 'hardcoded',
+            });
+          });
+        } catch (error) {
+          console.warn(`Failed to fetch ${genre} movie suggestions:`, error);
+        }
       }
     }
 
@@ -3590,8 +2594,7 @@ export default function SuggestionsScreen() {
       .sort((a, b) => (seasonalPreferences.get(b) || 0) - (seasonalPreferences.get(a) || 0))
       .slice(0, 2);
 
-    // Ensure Adventure is included in seasonal suggestions for variety
-    if (!seasonalGenreKeys.some(key => key.includes('Adventure'))) {
+    if (!bookMoodActive && !seasonalGenreKeys.some(key => key.includes('Adventure'))) {
       seasonalGenreKeys.push(`${currentSeason}-Adventure`);
       console.log('🏔️ Adding Adventure to seasonal suggestions');
     }
@@ -3603,7 +2606,11 @@ export default function SuggestionsScreen() {
       
       if (score > 5) { // Only suggest if user has strong seasonal preference
         try {
-          const genreSuggestions = await getEnhancedGenreSuggestions(genre, isLowCountRefresh);
+          const genreSuggestions = await getEnhancedGenreSuggestions(
+            genre,
+            isLowCountRefresh,
+            bookMoodSignals
+          );
           genreSuggestions.slice(0, 1).forEach((book, index) => {
             allSuggestions.push({
               id: `seasonal-${currentSeason}-${genre}-${index}`,
@@ -3640,54 +2647,92 @@ export default function SuggestionsScreen() {
       topMoods = interests.moodPreferences.map(mood => [mood, 8]); // Default high score for user preferences
     }
 
-    // Use API for award-winning books (literary fiction)
-    try {
-      const literaryBooks = await getEnhancedGenreSuggestions('literary', isLowCountRefresh);
-      literaryBooks.slice(0, 3).forEach((book, index) => {
-        const bookGenres = inferGenres(book.title, book.author);
-        const hasMoodMatch = topMoods.some(([mood]) => 
-          (book.description && typeof book.description === 'string' && book.description.toLowerCase().includes(mood)) ||
-          bookGenres.some(genre => 
-            ['Literary Fiction', 'Contemporary Fiction'].includes(genre)
-          )
-        );
+    const includeLiteraryAwards =
+      !bookMoodActive ||
+      (bookMoodSignals?.genreSlugs?.includes('literary') ?? false) ||
+      /\b(literary|booker|pulitzer|prize[\s-]?winning|debut novelist)\b/i.test(llmBookRefineContext);
 
-        if (hasMoodMatch || bookGenres.some(genre => favoriteGenres.has(genre))) {
-          allSuggestions.push({
-            id: `award-${index}`,
-            title: book.title,
-            author: book.author,
-            year: book.year,
-            isBook: true,
-            reason: `Award-winning literary fiction - matches your reading preferences`,
-            confidence: 85,
-            category: 'award',
-            format: book.format,
-            rating: book.rating,
-            description: book.description,
-            estimatedPages: estimatePages(book.title),
-            estimatedLength: estimateLength(book.title),
-            genres: bookGenres,
-            awards: ['Literary Fiction'],
-            source: book.source || 'api',
-          });
-        }
-      });
-    } catch (error) {
-      console.warn('Failed to fetch award-winning suggestions from API:', error);
+    // Use API for award-winning books (literary fiction) — skipped when refine clearly points elsewhere
+    if (includeLiteraryAwards) {
+      try {
+        const literaryBooks = await getEnhancedGenreSuggestions(
+          'literary',
+          isLowCountRefresh,
+          bookMoodSignals
+        );
+        literaryBooks.slice(0, 3).forEach((book, index) => {
+          const bookGenres = inferGenres(book.title, book.author);
+          const hasMoodMatch = topMoods.some(([mood]) => 
+            (book.description && typeof book.description === 'string' && book.description.toLowerCase().includes(mood)) ||
+            bookGenres.some(genre => 
+              ['Literary Fiction', 'Contemporary Fiction'].includes(genre)
+            )
+          );
+
+          if (hasMoodMatch || bookGenres.some(genre => favoriteGenres.has(genre))) {
+            allSuggestions.push({
+              id: `award-${index}`,
+              title: book.title,
+              author: book.author,
+              year: book.year,
+              isBook: true,
+              reason: `Award-winning literary fiction - matches your reading preferences`,
+              confidence: 85,
+              category: 'award',
+              format: book.format,
+              rating: book.rating,
+              description: book.description,
+              estimatedPages: estimatePages(book.title),
+              estimatedLength: estimateLength(book.title),
+              genres: bookGenres,
+              awards: ['Literary Fiction'],
+              source: book.source || 'api',
+            });
+          }
+        });
+      } catch (error) {
+        console.warn('Failed to fetch award-winning suggestions from API:', error);
+      }
     }
 
     // Generate trending suggestions using API
     const trendingItems: any[] = [];
 
-    // Fetch trending books from API
-    const trendingGenres = ['fantasy', 'contemporary', 'mystery', 'adventure'];
-    for (const genre of trendingGenres) {
-      try {
-        const genreBooks = await getEnhancedGenreSuggestions(genre, isLowCountRefresh);
-        trendingItems.push(...genreBooks.slice(0, 2)); // 2 books per genre
-      } catch (error) {
-        console.warn(`Failed to fetch trending ${genre} books from API:`, error);
+    const moodMovieGenre =
+      movieMoodActive && movieMoodSignals
+        ? movieMoodSignals.genreSlugs.includes('horror')
+          ? 'horror'
+          : movieMoodSignals.genreSlugs.includes('romance')
+            ? 'romance'
+            : movieMoodSignals.genreSlugs.includes('mystery')
+              ? 'thriller'
+              : movieMoodSignals.genreSlugs.includes('science fiction')
+                ? 'sci-fi'
+                : /\b(comedy|funny|humou?r)\b/i.test(movieMoodSignals.rawLower)
+                  ? 'comedy'
+                  : /\b(drama)\b/i.test(movieMoodSignals.rawLower)
+                    ? 'drama'
+                    : 'action'
+        : 'action';
+
+    const defaultTrendingGenres = ['fantasy', 'contemporary', 'mystery', 'adventure'];
+    const trendingBookGenres =
+      bookMoodSignals?.genreSlugs?.length && bookMoodActive
+        ? [...new Set([...bookMoodSignals.genreSlugs, ...defaultTrendingGenres])].slice(0, 6)
+        : defaultTrendingGenres;
+
+    if (includeBooks) {
+      for (const genre of trendingBookGenres) {
+        try {
+          const genreBooks = await getEnhancedGenreSuggestions(
+            genre,
+            isLowCountRefresh,
+            bookMoodSignals
+          );
+          trendingItems.push(...genreBooks.slice(0, 2));
+        } catch (error) {
+          console.warn(`Failed to fetch trending ${genre} books from API:`, error);
+        }
       }
     }
 
@@ -3695,40 +2740,32 @@ export default function SuggestionsScreen() {
     try {
       const preloadedMovies = getPreloadedMovies();
       const preloadedBooks = getPreloadedBooks();
-      
-      if (preloadedMovies && preloadedMovies.length > 0) {
-        console.log('🎬 Using preloaded movies for trending');
-        trendingItems.push(...preloadedMovies.slice(0, 5));
-      } else {
-        // Fetch trending movies from TMDB based on user preferences
-        if (interests && interests.mediaTypes.length > 0) {
-          try {
-            if (interests.mediaTypes.includes('movies')) {
-              const popularMovies = await fetchMoviesFromHardCodedData('action', 5);
-              trendingItems.push(...popularMovies);
-              console.log('🎬 Added movies to trending based on user preferences');
-            }
-          } catch (error) {
-            console.warn('Failed to fetch trending movies from TMDB:', error);
-          }
+
+      if (includeMovies) {
+        if (preloadedMovies && preloadedMovies.length > 0) {
+          console.log('🎬 Using preloaded movies for trending');
+          trendingItems.push(...preloadedMovies.slice(0, 6));
         } else {
-          // Default behavior if no preferences set
           try {
-            const popularMovies = await fetchMoviesFromHardCodedData('action', 5);
+            const popularMovies = await fetchMoviesFromHardCodedData(
+              moodMovieGenre,
+              6,
+              movieMoodSignals
+            );
             trendingItems.push(...popularMovies);
+            console.log('🎬 Added movies to trending from catalog');
           } catch (error) {
             console.warn('Failed to fetch trending movies from hard-coded data:', error);
           }
         }
       }
-      
-      if (preloadedBooks && preloadedBooks.length > 0) {
+
+      if (includeBooks && preloadedBooks && preloadedBooks.length > 0) {
         console.log('📚 Using preloaded books for trending');
         trendingItems.push(...preloadedBooks.slice(0, 5));
       }
     } catch (error) {
       console.error('❌ Error using preloaded data:', error);
-      // Fallback to normal fetching if preloaded data fails
     }
 
     trendingItems.forEach((item, index) => {
@@ -3738,7 +2775,7 @@ export default function SuggestionsScreen() {
         author: item.author,
         year: item.year,
         isBook: item.isBook,
-        reason: "Currently trending and highly rated",
+        reason: 'Highly rated pick from genre suggestions and our catalogs',
         confidence: 70,
         category: 'trending',
         format: item.format,
@@ -3754,34 +2791,73 @@ export default function SuggestionsScreen() {
     // Generate genre-based suggestions using API - limit to avoid API overload
     const genreSuggestions: any[] = [];
     
-    // Only fetch from a few key genres to avoid API overload
-    const priorityGenres = ['adventure', 'fantasy', 'mystery'];
-    
-    // Process priority genres first with fallback system
-    for (const genre of priorityGenres) {
-      const apiBooks = await fetchBooksWithFallbacks(genre, 10);
-      if (apiBooks && apiBooks.length > 0) {
-        genreSuggestions.push(...apiBooks);
+    const priorityBookGenres =
+      bookMoodActive && bookMoodSignals?.genreSlugs?.length
+        ? [...new Set([...bookMoodSignals.genreSlugs, 'adventure', 'fantasy', 'mystery'])].slice(0, 5)
+        : ['adventure', 'fantasy', 'mystery'];
+    const priorityMovieGenres =
+      movieMoodActive && movieMoodSignals?.genreSlugs?.length
+        ? [...new Set([...movieMoodSignals.genreSlugs, 'action', 'drama', 'thriller'])].slice(0, 5)
+        : ['action', 'drama', 'thriller'];
+
+    for (const genre of priorityBookGenres) {
+      if (includeBooks) {
+        const apiBooks = await fetchBooksWithFallbacks(genre, 6, bookMoodSignals);
+        if (apiBooks && apiBooks.length > 0) {
+          genreSuggestions.push(...apiBooks);
+        }
+      }
+    }
+
+    if (includeMovies) {
+      for (const genre of priorityMovieGenres) {
+        try {
+          const movieGenre = bookGenreToMovieCatalogGenre(genre);
+          const apiMovies = await fetchMoviesFromHardCodedData(movieGenre, 4, movieMoodSignals);
+          if (apiMovies.length > 0) {
+            genreSuggestions.push(...apiMovies);
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch priority ${genre} movies:`, error);
+        }
       }
     }
 
     genreSuggestions.forEach((work, index) => {
+      const genreList = Array.isArray(work.genres)
+        ? work.genres.filter((g: unknown): g is string => typeof g === 'string' && g.trim().length > 0)
+        : typeof work.genre === 'string' && work.genre.trim()
+          ? [work.genre.trim()]
+          : [];
+      const workMood = moodForMedia(Boolean(work.isBook));
+      const listReason = buildListTasteReason(
+        { title: work.title, author: work.author, genres: genreList },
+        listTasteSignals,
+        {
+          refinePhrase: workMood.active ? workMood.phrase : undefined,
+          refineGenreSlugs: workMood.signals?.genreSlugs,
+        }
+      );
+      const listBoost = listTasteMatchScore(
+        { title: work.title, author: work.author, genres: genreList },
+        listTasteSignals
+      );
       allSuggestions.push({
         id: `genre-${index}`,
         title: work.title,
         author: work.author,
         year: work.year,
         isBook: work.isBook,
-        reason: `Popular in ${work.genre} - a genre you might enjoy`,
-        confidence: 75,
+        reason: listReason,
+        confidence: Math.min(92, 68 + listBoost),
         category: 'genre',
         format: work.format,
         rating: work.rating || 4,
         description: work.description,
-        genres: [work.genre],
+        genres: genreList.length > 0 ? genreList : ['general'],
         source: work.source || 'local',
-        estimatedPages: work.isBook ? estimatePages(work.title) : undefined,
-        estimatedLength: estimateLength(work.title),
+        estimatedPages: work.isBook ? estimatePages(String(work.title ?? '')) : undefined,
+        estimatedLength: estimateLength(String(work.title ?? '')),
       });
     });
 
@@ -3803,10 +2879,34 @@ export default function SuggestionsScreen() {
     if (allSuggestions.length > 0) {
       console.log('🧠 Generating semantic similarity suggestions for regular recommendations...');
       
-      // Use the highest confidence suggestion as reference
-      const referenceItem = allSuggestions.reduce((best, current) => 
-        current.confidence > best.confidence ? current : best
-      );
+      const referenceItem = [...allSuggestions].reduce((best, current) => {
+        const mood = moodForMedia(current.isBook);
+        if (!mood.active || !mood.signals) {
+          return current.confidence > best.confidence ? current : best;
+        }
+        const scoreFor = (item: (typeof allSuggestions)[0]) =>
+          scoreRowAgainstMood(
+            {
+              title: item.title,
+              author: item.author,
+              description: item.description,
+              genres: item.genres || [],
+            },
+            mood.signals!
+          ) +
+          boostScoreWithLlmMoodIntent(
+            {
+              title: item.title,
+              author: item.author,
+              description: item.description,
+              genres: item.genres || [],
+              estimatedLength: item.estimatedLength,
+            },
+            mood.intent,
+            mood.signals!
+          );
+        return scoreFor(current) > scoreFor(best) ? current : best;
+      });
       
       const semanticSuggestions = generateSemanticSuggestions(referenceItem, allSuggestions);
       
@@ -3819,15 +2919,215 @@ export default function SuggestionsScreen() {
     }
     
     // Filter out items that are already in user's lists and past year content
-    const filteredSuggestions = allSuggestions.filter(suggestion => 
+    const normalizedSuggestions = allSuggestions
+      .slice(0, MAX_CANDIDATE_SUGGESTIONS)
+      .map((suggestion, index) => normalizeSuggestion(suggestion, index))
+      .filter((suggestion): suggestion is Suggestion => suggestion !== null);
+
+    const filteredSuggestions = normalizedSuggestions.filter(suggestion => 
       !isItemAlreadyAdded(suggestion) && !isPastYearContent(suggestion)
     );
     
     console.log(`📊 Suggestions generated: ${allSuggestions.length} total, ${filteredSuggestions.length} after filtering duplicates`);
-    
-    setSuggestions(filteredSuggestions);
-    setIsLoadingSuggestions(false);
-    setIsRefreshingForLowCount(false); // Reset the flag
+
+    let pipelineSuggestions = filteredSuggestions;
+    if (anyMoodActive) {
+      const ranked = filteredSuggestions
+        .map((s) => {
+          const mood = moodForMedia(s.isBook);
+          const baseScore = mood.active && mood.signals
+            ? scoreRowAgainstMood(
+                {
+                  title: s.title,
+                  author: s.author,
+                  description: s.description,
+                  genres: s.genres || [],
+                },
+                mood.signals
+              ) +
+              boostScoreWithLlmMoodIntent(
+                {
+                  title: s.title,
+                  author: s.author,
+                  description: s.description,
+                  genres: s.genres || [],
+                  estimatedLength: s.estimatedLength,
+                },
+                mood.intent,
+                mood.signals
+              )
+            : 0;
+          return { s, score: baseScore };
+        })
+        .sort(
+          (a, b) =>
+            b.score - a.score ||
+            (b.s.confidence || 0) - (a.s.confidence || 0)
+        );
+      const strong = ranked.filter((x) => x.score >= 2);
+      pipelineSuggestions =
+        strong.length >= 12
+          ? strong.map((x) => x.s)
+          : ranked.slice(0, Math.max(18, Math.ceil(ranked.length * 0.55))).map((x) => x.s);
+      pipelineSuggestions = pipelineSuggestions.map((s) => {
+        if (!reasonNeedsLlmPolish(s.reason)) return s;
+        const mood = moodForMedia(s.isBook);
+        if (!mood.active || !mood.signals) return s;
+        return {
+          ...s,
+          reason: buildListTasteReason(
+            { title: s.title, author: s.author, genres: s.genres || [] },
+            listTasteSignals,
+            { refinePhrase: mood.phrase, refineGenreSlugs: mood.signals.genreSlugs }
+          ),
+        };
+      });
+      console.log(
+        `🎯 Mood-aligned pool: ${filteredSuggestions.length} -> ${pipelineSuggestions.length} (refine picks)`
+      );
+    }
+
+    const mergeLlmRefineBatch = async (
+      pipeline: Suggestion[],
+      refineText: string,
+      isBook: boolean
+    ): Promise<{ pipeline: Suggestion[]; status: string | null }> => {
+      const mediaPipeline = pipeline.filter((s) => s.isBook === isBook);
+      const mood = moodForMedia(isBook);
+      const refineMoodActive = moodSignalsAreActionable(extractMoodSignals(refineText));
+      if (!llmRefineEnabled || mediaPipeline.length === 0) {
+        return { pipeline, status: null };
+      }
+      if (!refineText.trim() && !refineMoodActive) {
+        return { pipeline, status: null };
+      }
+
+      const payload = buildSuggestionsRefinePayload(mediaPipeline, refineText);
+      if (!payload) {
+        return { pipeline, status: null };
+      }
+
+      const refinedResult = await refineSuggestionsWithLLM(payload);
+      if (refinedResult.ok) {
+        const refined = refinedResult.data;
+        const byId = new Map(refined.items.map((item) => [item.id, item]));
+        const merged = pipeline.map((suggestion) => {
+          if (suggestion.isBook !== isBook) return suggestion;
+          const llm = byId.get(suggestion.id);
+          if (!llm) {
+            return reasonNeedsLlmPolish(suggestion.reason)
+              ? polishReasonIfStillGeneric(suggestion, listTasteSignals, {
+                  refinePhrase: mood.active ? mood.phrase : undefined,
+                  refineGenreSlugs: mood.signals?.genreSlugs,
+                })
+              : suggestion;
+          }
+          const primaryReason = trimSuggestionCopy(
+            (typeof llm.explanation === 'string' && llm.explanation.trim().length > 0
+              ? llm.explanation.trim()
+              : llm.reason_short) || suggestion.reason,
+            SUGGESTION_EXPLANATION_MAX_CHARS
+          );
+          const caveat =
+            typeof llm.caveat === 'string' && llm.caveat.trim().length > 0
+              ? trimSuggestionCopy(llm.caveat, SUGGESTION_CAVEAT_MAX_CHARS)
+              : undefined;
+          const formatSuggestion =
+            typeof llm.format_suggestion === 'string' && llm.format_suggestion.trim().length > 0
+              ? llm.format_suggestion.trim()
+              : undefined;
+          if (mood.active) {
+            return {
+              ...suggestion,
+              reason: primaryReason,
+              ...(caveat ? { llmCaveat: caveat } : {}),
+              ...(formatSuggestion ? { llmFormatSuggestion: formatSuggestion } : {}),
+            };
+          }
+          return {
+            ...suggestion,
+            confidence: Math.max(suggestion.confidence, Math.min(100, llm.score)),
+            reason: primaryReason,
+            ...(caveat ? { llmCaveat: caveat } : {}),
+            ...(formatSuggestion ? { llmFormatSuggestion: formatSuggestion } : {}),
+          };
+        });
+        const ra = refined.remaining_actions;
+        const nearlyOut =
+          typeof ra === 'number' && Number.isFinite(ra) && ra > 0 && ra <= 10;
+        return {
+          pipeline: mood.active ? merged : merged.sort((a, b) => b.confidence - a.confidence),
+          status: nearlyOut ? `Few refinements left (${ra})` : null,
+        };
+      }
+
+      return {
+        pipeline: pipeline.map((s) =>
+          s.isBook !== isBook
+            ? s
+            : reasonNeedsLlmPolish(s.reason)
+              ? polishReasonIfStillGeneric(s, listTasteSignals, {
+                  refinePhrase: mood.active ? mood.phrase : undefined,
+                  refineGenreSlugs: mood.signals?.genreSlugs,
+                })
+              : s
+        ),
+        status: refinedResult.userMessage,
+      };
+    };
+
+    let finalSuggestions = pipelineSuggestions;
+    let refineStatus: string | null = null;
+    if (llmRefineEnabled && pipelineSuggestions.length > 0) {
+      if (includeBooks) {
+        const bookBatch = await mergeLlmRefineBatch(
+          finalSuggestions,
+          llmBookRefineContext,
+          true
+        );
+        finalSuggestions = bookBatch.pipeline;
+        refineStatus = bookBatch.status ?? refineStatus;
+      }
+      if (includeMovies) {
+        const movieBatch = await mergeLlmRefineBatch(
+          finalSuggestions,
+          llmMovieRefineContext,
+          false
+        );
+        finalSuggestions = movieBatch.pipeline;
+        refineStatus = movieBatch.status ?? refineStatus;
+      }
+      setLlmRefineStatus(refineStatus);
+    } else {
+      setLlmRefineStatus(null);
+    }
+
+    finalSuggestions = finalSuggestions.map((s) => {
+      if (!reasonNeedsLlmPolish(s.reason)) return s;
+      const mood = moodForMedia(s.isBook);
+      return {
+        ...s,
+        reason: buildListTasteReason(
+          { title: s.title, author: s.author, genres: s.genres || [] },
+          listTasteSignals,
+          mood.active
+            ? { refinePhrase: mood.phrase, refineGenreSlugs: mood.signals?.genreSlugs }
+            : undefined
+        ),
+      };
+    });
+
+    if (requestId === generationRequestIdRef.current) {
+      setSuggestions(finalSuggestions.slice(0, MAX_RENDERED_SUGGESTIONS));
+    }
+    } catch (err) {
+      console.error('❌ generateSuggestions failed:', err);
+    } finally {
+      if (requestId === generationRequestIdRef.current) {
+        setIsLoadingSuggestions(false);
+        setIsRefreshingForLowCount(false);
+      }
+    }
   };
 
   // Call generateSuggestions when books or movies change
@@ -3839,6 +3139,108 @@ export default function SuggestionsScreen() {
     
     return () => clearTimeout(timeoutId);
   }, [books, movies]);
+
+  useEffect(() => {
+    if (!refineContextEffectPrimedRef.current) {
+      refineContextEffectPrimedRef.current = true;
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      void (async () => {
+        const bookPhrase = llmBookRefineContext.trim();
+        const moviePhrase = llmMovieRefineContext.trim();
+        if (llmRefineEnabled && bookPhrase.length >= 2) {
+          moodIntentBookRef.current = await fetchMoodIntentFromProxy(bookPhrase);
+        } else {
+          moodIntentBookRef.current = null;
+        }
+        if (llmRefineEnabled && moviePhrase.length >= 2) {
+          moodIntentMovieRef.current = await fetchMoodIntentFromProxy(moviePhrase);
+        } else {
+          moodIntentMovieRef.current = null;
+        }
+        generateSuggestions(true);
+      })();
+    }, 650);
+    return () => clearTimeout(timeoutId);
+  }, [llmBookRefineContext, llmMovieRefineContext, llmRefineEnabled]);
+
+  useEffect(() => {
+    if (!llmRefineEnabled) {
+      setTasteProfileNarrative(null);
+      return;
+    }
+    const tid = setTimeout(() => {
+      void (async () => {
+        try {
+          const snap = buildTasteProfileSnapshot(books, movies);
+          const raw = await AsyncStorage.getItem(TASTE_PROFILE_CACHE_KEY);
+          let cached: { hash?: string; narrative?: string; cachedAt?: string } = {};
+          if (raw) {
+            try {
+              cached = JSON.parse(raw) as { hash?: string; narrative?: string; cachedAt?: string };
+            } catch {
+              /* ignore */
+            }
+          }
+          const cacheAge =
+            typeof cached.cachedAt === 'string'
+              ? Date.now() - new Date(cached.cachedAt).getTime()
+              : Number.POSITIVE_INFINITY;
+          const finalizeSnapshot = (raw: string) =>
+            mergeFilmIntoTasteNarrative(
+              finalizeTasteNarrative(raw),
+              snap.aggregates.mediaSummary.listedMovies,
+              snap.topRatedMovies.map((m) => ({ title: m.title, author: m.author })),
+              snap.aggregates.topMovieGenres
+            );
+
+          if (
+            cached.hash === snap.summaryHash &&
+            typeof cached.narrative === 'string' &&
+            cached.narrative.trim().length > 0 &&
+            cacheAge < TASTE_PROFILE_CACHE_MAX_AGE_MS
+          ) {
+            setTasteProfileNarrative(finalizeSnapshot(cached.narrative));
+            return;
+          }
+          const { narrative } = await fetchTasteProfileNarrative({
+            summaryHash: snap.summaryHash,
+            topRated: snap.topRated,
+            topRatedBooks: snap.topRatedBooks,
+            topRatedMovies: snap.topRatedMovies,
+            aggregates: snap.aggregates,
+          });
+          if (narrative) {
+            const finalized = finalizeSnapshot(narrative);
+            await AsyncStorage.setItem(
+              TASTE_PROFILE_CACHE_KEY,
+              JSON.stringify({
+                hash: snap.summaryHash,
+                narrative: finalized,
+                cachedAt: new Date().toISOString(),
+              })
+            );
+            setTasteProfileNarrative(finalized);
+          }
+        } catch (e) {
+          console.warn('taste profile fetch failed', e);
+        }
+      })();
+    }, 2000);
+    return () => clearTimeout(tid);
+  }, [books, movies, llmRefineEnabled]);
+
+  /** Re-run refine when taste narrative arrives so card copy can use the snapshot. */
+  useEffect(() => {
+    if (!llmRefineEnabled || !tasteProfileNarrative?.trim()) return;
+    const tid = setTimeout(() => {
+      if (suggestions.length > 0) {
+        generateSuggestions(true);
+      }
+    }, 500);
+    return () => clearTimeout(tid);
+  }, [tasteProfileNarrative, llmRefineEnabled]);
 
   // Manage semantic cache periodically
   useEffect(() => {
@@ -3852,6 +3254,7 @@ export default function SuggestionsScreen() {
   // Spinning animation for loading indicator
   useEffect(() => {
     if (isLoadingSuggestions) {
+      spinValue.setValue(0);
       const spinAnimation = Animated.loop(
         Animated.timing(spinValue, {
           toValue: 1,
@@ -3861,7 +3264,10 @@ export default function SuggestionsScreen() {
       );
       spinAnimation.start();
       
-      return () => spinAnimation.stop();
+      return () => {
+        spinAnimation.stop();
+        spinValue.setValue(0);
+      };
     }
   }, [isLoadingSuggestions, spinValue]);
 
@@ -3910,7 +3316,7 @@ export default function SuggestionsScreen() {
         return false;
       }
       
-      const key = `${suggestion.title.toLowerCase().trim()}-${suggestion.author.toLowerCase().trim()}`;
+      const key = `${suggestion.title.toLowerCase().trim()}-${suggestion.author.toLowerCase().trim()}-${suggestion.year || 0}-${suggestion.isBook ? 'book' : 'movie'}`;
       if (seenItems.has(key)) {
         return false; // Remove duplicate silently to reduce log noise
       }
@@ -4051,28 +3457,31 @@ export default function SuggestionsScreen() {
     });
 
     // Remove diversity score from final output
-    const sortedSuggestions = scoredSuggestions.map(({ diversityScore, ...suggestion }) => suggestion);
+    let sortedSuggestions = scoredSuggestions.map(({ diversityScore, ...suggestion }) => suggestion);
 
-    // Apply real-time processing to suggestions (synchronous version)
-    const processedSuggestions = applyRealTimeAdjustments(sortedSuggestions);
-    
-    // Update real-time suggestions state
-    setRealTimeSuggestions(processedSuggestions);
-    
-    // Removed auto-refresh logic from useMemo to prevent infinite loops
-    
-    console.log('🔍 Final filtered and sorted suggestions:', processedSuggestions.length);
-    console.log('🔍 Final suggestions:', processedSuggestions.map(s => ({ title: s.title, category: s.category })));
+    const listSignals = buildListTasteSignals(books, movies);
+    sortedSuggestions = sortedSuggestions.map((suggestion) => {
+      const listBoost = listTasteMatchScore(
+        { title: suggestion.title, author: suggestion.author, genres: suggestion.genres || [] },
+        listSignals
+      );
+      if (listBoost <= 0) return suggestion;
+      return {
+        ...suggestion,
+        confidence: Math.min(95, suggestion.confidence + listBoost),
+      };
+    });
+    sortedSuggestions.sort((a, b) => b.confidence - a.confidence);
 
-    return processedSuggestions;
-      }, [suggestions, activeFilter, sortBy, dismissedSuggestions, granularRatings]);
+    console.log('🔍 Final filtered and sorted suggestions:', sortedSuggestions.length);
+    console.log('🔍 Final suggestions:', sortedSuggestions.map(s => ({ title: s.title, category: s.category })));
+
+    return sortedSuggestions;
+      }, [suggestions, activeFilter, sortBy, dismissedSuggestions, granularRatings, books, movies]);
 
   // Completely rewritten handleAddToList with proper state management and NO rating pre-population
   const handleAddToList = async (suggestion: Suggestion) => {
     console.log('🎯 Starting handleAddToList for:', suggestion.title);
-    
-    // Track real-time interaction
-    trackUserInteraction('add', suggestion.id, { title: suggestion.title, author: suggestion.author });
     
     // Prevent duplicate additions
     if (addedItems.has(suggestion.id) || isProcessing.has(suggestion.id)) {
@@ -4277,10 +3686,33 @@ export default function SuggestionsScreen() {
 
 
 
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 80) return '#10B981';
-    if (confidence >= 60) return '#F59E0B';
-    return '#EF4444';
+  /** Badge copy from ordinal position in feed (confidence-sorted): first rows never all duplicate one label when n≥2. */
+  const matchBadgeLabel = (
+    confidence: number,
+    indexInFeed: number,
+    feedTotal: number
+  ) => {
+    const c = Math.max(0, Math.min(100, Number.isFinite(confidence) ? confidence : 0));
+    if (c < 38) return 'Worth exploring';
+    const n = Math.max(feedTotal, 1);
+    const idx = Math.min(Math.max(indexInFeed, 0), n - 1);
+    if (n <= 1) {
+      if (c >= 86) return 'Great match';
+      if (c >= 68) return 'Strong match';
+      return 'Worth exploring';
+    }
+
+    // First two picks always differentiate (fixes “every card says Great” at top of long lists).
+    if (idx === 0) return 'Great match';
+    if (idx === 1) return 'Strong match';
+
+    const tail = idx - 2;
+    const tailN = Math.max(n - 2, 1);
+    const firstBreak = Math.max(1, Math.floor(tailN / 3));
+    const secondBreak = Math.max(firstBreak + 1, Math.floor((2 * tailN) / 3));
+    if (tail < firstBreak) return 'Great match';
+    if (tail < secondBreak) return 'Strong match';
+    return 'Worth exploring';
   };
 
   const toggleDescriptionExpansion = (suggestionId: string) => {
@@ -4295,174 +3727,205 @@ export default function SuggestionsScreen() {
     });
   };
 
-  const renderSuggestionCard = ({ item: suggestion }: { item: Suggestion }) => {
+  const renderSuggestionCard = ({
+    item: suggestion,
+    index,
+  }: {
+    item: Suggestion;
+    index: number;
+  }) => {
     const isAdded = addedItems.has(suggestion.id);
     const isProcessingItem = isProcessing.has(suggestion.id);
     const isShowingSuccess = successAnimation.has(suggestion.id);
     const isShowingImmediateFeedback = immediateFeedback.has(suggestion.id);
-    
-    // Debug logging for animation state
-    console.log('🎨 Rendering button for:', suggestion.title, 'ID:', suggestion.id);
-    console.log('🎨 Button states:', { isAdded, isProcessingItem, isShowingSuccess, isShowingImmediateFeedback });
-    
-    if (isShowingSuccess || isShowingImmediateFeedback) {
-      console.log('🎉 ANIMATION ACTIVE for:', suggestion.title);
-    }
-    
+    const isLoved = granularRatings.get(suggestion.id) === 'loved';
+    const addAccent = suggestion.isBook ? AMBER_PRIMARY : MOVIE_WARM;
+
     return (
       <View style={styles.suggestionCard}>
-        <View style={styles.suggestionHeader}>
-          <View style={styles.suggestionType}>
-            {suggestion.isBook ? (
-              <BookOpen size={16} color="#F59E0B" />
-            ) : (
-              <Film size={16} color="#3B82F6" />
-            )}
-            <Text style={styles.typeText}>
-              {suggestion.isBook ? 'Book' : 'Movie'}
-            </Text>
-          </View>
-          <View style={[styles.confidenceBadge, { backgroundColor: getConfidenceColor(suggestion.confidence) }]}>
-            <Text style={styles.confidenceText}>{suggestion.confidence}%</Text>
-          </View>
-        </View>
+        <TouchableOpacity
+          style={styles.favoriteCornerHit}
+          onPress={() => handleGranularRating(suggestion, 'loved')}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isLoved ? `Remove ${suggestion.title} from favorites signals` : `Love ${suggestion.title}`
+          }
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Heart
+            size={22}
+            color={isLoved ? AMBER_PRIMARY : '#A8A29E'}
+            {...(isLoved ? { fill: AMBER_PRIMARY } : { fill: 'none' })}
+            strokeWidth={2}
+          />
+        </TouchableOpacity>
 
-        <Text style={styles.suggestionTitle} numberOfLines={2}>
-          {suggestion.title}
-        </Text>
-        <Text style={styles.suggestionAuthor}>
-          by {suggestion.author}
-        </Text>
-
-        <Text style={styles.suggestionReason} numberOfLines={2}>
-          {suggestion.reason}
-        </Text>
-        
-        {/* Description */}
-        {suggestion.description && (
-          <TouchableOpacity
-            onPress={() => toggleDescriptionExpansion(suggestion.id)}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Toggle description expansion"
-            accessibilityHint="Tap to show full description"
+        <View style={styles.suggestionCardBody}>
+          <Pressable
+            disabled={
+              !suggestion.description || expandedDescriptions.has(suggestion.id)
+            }
+            onPress={() => {
+              if (suggestion.description) {
+                toggleDescriptionExpansion(suggestion.id);
+              }
+            }}
+            style={({ pressed }) => [
+              styles.suggestionPressableOutline,
+              Boolean(suggestion.description) &&
+                !expandedDescriptions.has(suggestion.id) &&
+                pressed &&
+                styles.suggestionPressablePressed,
+            ]}
+            accessibilityRole={
+              suggestion.description && !expandedDescriptions.has(suggestion.id)
+                ? 'button'
+                : 'none'
+            }
+            accessibilityLabel={
+              suggestion.description && !expandedDescriptions.has(suggestion.id)
+                ? 'Show detail for this recommendation'
+                : undefined
+            }
           >
-            <Text 
-              style={styles.suggestionDescription} 
-              numberOfLines={expandedDescriptions.has(suggestion.id) ? undefined : 3}
-            >
-              {suggestion.description}
-            </Text>
-            {suggestion.description.length > 150 && (
-              <Text style={styles.expandText}>
-                {expandedDescriptions.has(suggestion.id) ? 'Show less' : 'Show more'}
-              </Text>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {/* Semantic Similarity Indicator */}
-        {suggestion.category === 'semantic' && (
-          <View style={styles.semanticTag}>
-            <Lightbulb size={12} color="#F59E0B" />
-            <Text style={styles.semanticTagText}>
-              Semantically Similar
-            </Text>
-          </View>
-        )}
-
-
-
-
-        <View style={styles.suggestionMeta}>
-          <Text style={styles.metaText}>
-            {suggestion.year}
-          </Text>
-          {suggestion.estimatedPages && (
-            <Text style={styles.metaText}>
-              ~{suggestion.estimatedPages} pages
-            </Text>
-          )}
-          {suggestion.estimatedLength && (
-            <Text style={styles.metaText}>
-              {suggestion.estimatedLength} read
-            </Text>
-          )}
-          {suggestion.rating && (
-            <View style={styles.ratingContainer}>
-              <Star size={12} color="#F59E0B" fill="#F59E0B" />
-              <Text style={styles.ratingText}>{suggestion.rating}/5</Text>
+            <View style={styles.suggestionHeader}>
+              <View style={styles.suggestionType}>
+                {suggestion.isBook ? (
+                  <BookOpen size={16} color={AMBER_PRIMARY} />
+                ) : (
+                  <Film size={16} color={MOVIE_WARM} />
+                )}
+                <Text style={styles.typeText}>{suggestion.isBook ? 'Book' : 'Movie'}</Text>
+              </View>
+              <View style={styles.matchQualityPill}>
+                <Text style={styles.matchQualityPillText}>
+                  {matchBadgeLabel(
+                    suggestion.confidence,
+                    index,
+                    filteredAndSortedSuggestions.length
+                  )}
+                </Text>
+              </View>
             </View>
-          )}
+
+            <Text style={styles.suggestionTitle} numberOfLines={3}>
+              {suggestion.title}
+            </Text>
+            <Text style={styles.suggestionReasonLead} numberOfLines={4}>
+              {suggestion.reason}
+            </Text>
+            {suggestion.llmCaveat ? (
+              <Text style={styles.suggestionLlmCaveat} numberOfLines={2}>
+                {suggestion.llmCaveat}
+              </Text>
+            ) : null}
+            {suggestion.llmFormatSuggestion ? (
+              <View style={styles.suggestionFormatChip}>
+                <Text style={styles.suggestionFormatChipText}>
+                  {suggestion.llmFormatSuggestion === 'audio'
+                    ? 'Audio-friendly'
+                    : suggestion.llmFormatSuggestion === 'text'
+                      ? 'Print / ebook'
+                      : suggestion.llmFormatSuggestion === 'streaming'
+                        ? 'Streaming'
+                        : suggestion.llmFormatSuggestion}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={styles.suggestionAuthor}>by {suggestion.author}</Text>
+
+            <View style={styles.suggestionMetaCompact}>
+              {suggestion.rating ? (
+                <View style={styles.ratingContainer}>
+                  <Star size={13} color={AMBER_PRIMARY} fill={AMBER_PRIMARY} />
+                  <Text style={styles.ratingTextStrong}>{Number(suggestion.rating).toFixed(1)}</Text>
+                </View>
+              ) : null}
+              {suggestion.estimatedPages ? (
+                <Text style={styles.metaTextInline}>{suggestion.rating ? ' · ' : ''}~{suggestion.estimatedPages} pp</Text>
+              ) : null}
+              {!suggestion.isBook && suggestion.estimatedLength ? (
+                <Text style={styles.metaTextInline}>
+                  {suggestion.rating || suggestion.estimatedPages ? ' · ' : ''}
+                  {suggestion.estimatedLength}
+                </Text>
+              ) : null}
+            </View>
+
+            {suggestion.category === 'semantic' && (
+              <View style={styles.semanticTag}>
+                <Lightbulb size={12} color={AMBER_DARK} />
+                <Text style={styles.semanticTagText}>Semantically similar</Text>
+              </View>
+            )}
+
+            {suggestion.description && !expandedDescriptions.has(suggestion.id) ? (
+              <Text style={styles.detailRevealHint}>Tap card for synopsis</Text>
+            ) : null}
+          </Pressable>
+
+          {suggestion.description && expandedDescriptions.has(suggestion.id) ? (
+            <View style={styles.expandedDetailBlock}>
+              <Text style={styles.suggestionDescription}>{suggestion.description}</Text>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => toggleDescriptionExpansion(suggestion.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Hide synopsis"
+              >
+                <Text style={styles.detailCollapse}>Show less</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={[
-              styles.addButton, 
-              { backgroundColor: suggestion.isBook ? '#F59E0B' : '#3B82F6' },
-              (isShowingSuccess || isShowingImmediateFeedback) && styles.successButton,
-              (!isShowingSuccess && !isShowingImmediateFeedback && (isAdded || isProcessingItem)) && styles.addedButton
+              styles.addButtonFullWidth,
+              { backgroundColor: addAccent },
+              (isShowingSuccess || isShowingImmediateFeedback) && styles.successButtonWarm,
+              !isShowingSuccess &&
+                !isShowingImmediateFeedback &&
+                (isAdded || isProcessingItem) &&
+                styles.addedButtonWarm,
             ]}
             onPress={() => {
-              // Show immediate visual feedback
-              setImmediateFeedback(prev => new Set(prev).add(suggestion.id));
-              // Start the add process
+              setImmediateFeedback((prev) => new Set(prev).add(suggestion.id));
               handleAddToList(suggestion);
             }}
             disabled={isAdded || isProcessingItem || isShowingSuccess || isShowingImmediateFeedback}
             accessibilityRole="button"
             accessibilityLabel={isAdded ? `${suggestion.title} added to list` : `Add ${suggestion.title} to list`}
-            accessibilityHint={isAdded ? 'This item has been added to your planned list' : 'Tap to add this item to your planned list'}
+            accessibilityHint={
+              isAdded ? 'This item has been added to your planned list' : 'Adds this pick to your planned list'
+            }
           >
-            {(isShowingSuccess || isShowingImmediateFeedback) ? (
-              <Check size={16} color="#FFFFFF" />
+            {isShowingSuccess || isShowingImmediateFeedback ? (
+              <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
             ) : (
-              <Plus size={16} color="#FFFFFF" />
+              <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
             )}
             <Text style={styles.addButtonText}>
-              {(isShowingSuccess || isShowingImmediateFeedback)
+              {isShowingSuccess || isShowingImmediateFeedback
                 ? 'Added!'
-                : isProcessingItem 
-                  ? 'Adding...' 
-                  : isAdded 
-                    ? `Added to ${suggestion.isBook ? 'Books' : 'Movies'}` 
-                    : `Add to ${suggestion.isBook ? 'Books' : 'Movies'}`
-              }
+                : isProcessingItem
+                  ? 'Adding…'
+                  : isAdded
+                    ? `Added to ${suggestion.isBook ? 'books' : 'movies'}`
+                    : 'Add to list'}
             </Text>
           </TouchableOpacity>
-          
-          <View style={styles.feedbackButtons}>
-            {(['loved', 'liked', 'meh', 'disliked'] as const).map((rating) => {
-              const currentRating = granularRatings.get(suggestion.id);
-              const isActive = currentRating === rating;
-              const config = RATING_CONFIG[rating];
-              
-              return (
-                <TouchableOpacity
-                  key={rating}
-                  style={[
-                    styles.feedbackButton,
-                    {
-                      borderColor: config.color,
-                      backgroundColor: isActive ? config.color : '#FFFFFF',
-                    }
-                  ]}
-                  onPress={() => handleGranularRating(suggestion, rating)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${isActive ? 'Remove' : 'Rate'} ${rating} for ${suggestion.title}`}
-                  accessibilityHint={`Tap to ${isActive ? 'remove' : 'rate'} this suggestion as ${rating}`}
-                >
-                  <Text style={{
-                    fontSize: 16,
-                    color: isActive ? '#FFFFFF' : config.color,
-                  }}>
-                    {config.icon}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+
+          <TouchableOpacity
+            style={styles.notForMeButton}
+            onPress={() => handleGranularRating(suggestion, 'disliked')}
+            accessibilityRole="button"
+            accessibilityLabel={`Not for me — hide ${suggestion.title}`}
+            accessibilityHint="We will show fewer picks like this"
+          >
+            <Text style={styles.notForMeText}>Not for me</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -4506,7 +3969,7 @@ export default function SuggestionsScreen() {
         if (Share.share) {
           await Share.share({
             message: exportText,
-            title: 'My Complete Reading & Watching List',
+            title: 'FiftyList — My Complete Reading & Watching List',
           });
         } else {
           // Fallback for platforms where Share is not available
@@ -4533,11 +3996,15 @@ export default function SuggestionsScreen() {
 
   // External API integration for large book catalogs
   const fetchBooksFromAPI = async (genre: string, limit: number = 20): Promise<any[]> => {
+    if (!GOOGLE_BOOKS_API_KEY) {
+      return [];
+    }
+
     try {
       // Example: Google Books API
       const query = encodeURIComponent(`${genre} fiction`);
       const response = await fetch(
-        `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=${limit}&orderBy=relevance&key=YOUR_API_KEY`
+        `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=${limit}&orderBy=relevance&key=${GOOGLE_BOOKS_API_KEY}`
       );
       
       if (!response.ok) {
@@ -4568,9 +4035,13 @@ export default function SuggestionsScreen() {
 
   // NYT Bestsellers API integration
   const fetchNYTBestsellers = async (category: string = 'combined-fiction'): Promise<any[]> => {
+    if (!NYT_API_KEY) {
+      return [];
+    }
+
     try {
       const response = await fetch(
-        `https://api.nytimes.com/svc/books/v3/lists/current/${category}.json?api-key=YOUR_NYT_API_KEY`
+        `https://api.nytimes.com/svc/books/v3/lists/current/${category}.json?api-key=${NYT_API_KEY}`
       );
       
       if (!response.ok) {
@@ -4612,19 +4083,19 @@ export default function SuggestionsScreen() {
     maxCacheSize: SEMANTIC_CONFIG.MAX_CACHE_SIZE
   };
 
-  // TMDB API configuration
-  const TMDB_API_KEY = '8c247ea0b4b56ed2ff7d41c9a833aa77'; // Free public key for demo
-  const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-
-  // Enhanced genre suggestions with Google Books API integration
-  const getEnhancedGenreSuggestions = async (genre: string, isLowCountRefresh: boolean = false): Promise<any[]> => {
+  // Enhanced genre suggestions (catalog-first; optional mood re-ranks within genre)
+  const getEnhancedGenreSuggestions = async (
+    genre: string,
+    isLowCountRefresh: boolean = false,
+    mood: MoodSignals | null = null
+  ): Promise<any[]> => {
     try {
       const limit = isLowCountRefresh ? 30 : 20; // Fetch more content for low count refresh
-      console.log(`🌐 Fetching ${genre} books from Google Books API (limit: ${limit})...`);
-              const apiBooks = await fetchBooksFromHardCodedData(genre, limit);
+      console.log(`📚 Fetching ${genre} books from catalog (limit: ${limit})...`);
+      const apiBooks = await fetchBooksFromHardCodedData(genre, limit, mood);
       
       if (apiBooks.length > 0) {
-        console.log(`✅ Found ${apiBooks.length} ${genre} books from Google Books API`);
+        console.log(`✅ Found ${apiBooks.length} ${genre} books from catalog`);
         return apiBooks;
       }
     } catch (error) {
@@ -4649,10 +4120,18 @@ export default function SuggestionsScreen() {
     }
 
     try {
+      const apiKey = getTmdbApiKey();
+      if (!apiKey) {
+        console.warn(
+          '⚠️ TMDB API key not configured. Set EXPO_PUBLIC_TMDB_API_KEY in .env or EAS secrets.'
+        );
+        return [];
+      }
+
       console.log(`🌐 Fetching ${limit} ${category} movies from TMDB...`);
-      
+
       const response = await fetch(
-        `${TMDB_BASE_URL}/movie/${category}?api_key=${TMDB_API_KEY}&language=en-US&page=1`
+        `${TMDB_BASE_URL}/movie/${category}?api_key=${apiKey}&language=en-US&page=1`
       );
       
       if (!response.ok) {
@@ -5422,11 +4901,14 @@ export default function SuggestionsScreen() {
   };
 
   // Enhanced book fetching with multiple fallback options
-  const fetchBooksWithFallbacks = async (genre: string, limit: number = 20): Promise<any[]> => {
+  const fetchBooksWithFallbacks = async (
+    genre: string,
+    limit: number = 20,
+    mood: MoodSignals | null = null
+  ): Promise<any[]> => {
     console.log(`🔄 Fetching books for ${genre} with fallback options...`);
-    
-    // Try Google Books first (most reliable)
-          let books = await fetchBooksFromHardCodedData(genre, limit);
+
+    let books = await fetchBooksFromHardCodedData(genre, limit, mood);
     
     // If hard-coded data returns few results, try broader genre matching
     if (books.length < 5 && API_CONFIG.USE_LOCAL_FALLBACK) {
@@ -5455,7 +4937,7 @@ export default function SuggestionsScreen() {
   const generateSemanticEmbedding = (item: Suggestion): number[] => {
     try {
       // Create a simple but effective embedding based on text features
-      const text = `${item.title} ${item.author} ${item.description} ${item.genres.join(' ')}`.toLowerCase();
+      const text = `${item.title ?? ''} ${item.author ?? ''} ${item.description ?? ''} ${(item.genres || []).join(' ')}`.toLowerCase();
       
       // Simple hash-based embedding (for mobile performance)
       const embedding = new Array(SEMANTIC_CONFIG.EMBEDDING_DIMENSIONS).fill(0);
@@ -5826,9 +5308,15 @@ export default function SuggestionsScreen() {
   }, [suggestions]);
 
   // Hard-coded data function - zero API calls, instant results
-  const fetchBooksFromHardCodedData = async (genre: string, limit: number = 20): Promise<any[]> => {
-    const cacheKey = `hardcoded-${genre}-${limit}`;
-    
+  const fetchBooksFromHardCodedData = async (
+    genre: string,
+    limit: number = 20,
+    mood: MoodSignals | null = null
+  ): Promise<any[]> => {
+    const moodKey =
+      mood && moodSignalsAreActionable(mood) ? mood.rawLower.slice(0, 32).replace(/\s+/g, '-') : 'none';
+    const cacheKey = `hardcoded-${genre}-${limit}-${moodKey}`;
+
     // Check cache first
     const cached = apiCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
@@ -5840,8 +5328,10 @@ export default function SuggestionsScreen() {
       console.log(`📚 Fetching ${limit} ${genre} books from hard-coded dataset...`);
       
       // Filter books by genre from comprehensive dataset
-      let filteredBooks = COMPREHENSIVE_BOOK_DATA.filter(book => 
-        book.genres.some(g => g.toLowerCase().includes(genre.toLowerCase()))
+      const genreLc = String(genre ?? '').toLowerCase();
+      let filteredBooks = COMPREHENSIVE_BOOK_DATA.filter((book) =>
+        Array.isArray(book.genres) &&
+        book.genres.some((g) => typeof g === 'string' && g.toLowerCase().includes(genreLc))
       );
       
       // If no exact matches, try broader genre matching
@@ -5849,7 +5339,9 @@ export default function SuggestionsScreen() {
         const genreMappings: { [key: string]: string[] } = {
           'fantasy': ['fantasy', 'epic', 'magic'],
           'scifi': ['science fiction', 'sci-fi'],
+          'science fiction': ['science fiction', 'sci-fi'],
           'mystery': ['mystery', 'thriller', 'crime'],
+          'thriller': ['thriller', 'suspense', 'crime'],
           'adventure': ['adventure', 'exploration'],
           'literary': ['literary', 'classic'],
           'contemporary': ['contemporary', 'modern'],
@@ -5859,15 +5351,35 @@ export default function SuggestionsScreen() {
           'young adult': ['young adult', 'ya']
         };
         
-        const targetGenres = genreMappings[genre] || [genre];
-        filteredBooks = COMPREHENSIVE_BOOK_DATA.filter(book => 
-          book.genres.some(g => targetGenres.some(tg => g.toLowerCase().includes(tg.toLowerCase())))
+        const targetGenres = genreMappings[genreLc] || [genre];
+        filteredBooks = COMPREHENSIVE_BOOK_DATA.filter(
+          (book) =>
+            Array.isArray(book.genres) &&
+            book.genres.some((g) =>
+              typeof g === 'string' &&
+              targetGenres.some((tg) => typeof tg === 'string' && g.toLowerCase().includes(tg.toLowerCase()))
+            )
         );
       }
       
-      // Shuffle and limit results
-      const shuffled = filteredBooks.sort(() => Math.random() - 0.5);
-      const limitedBooks = shuffled.slice(0, limit);
+      let ranked = [...filteredBooks];
+      if (mood && moodSignalsAreActionable(mood)) {
+        ranked.sort(
+          (a, b) =>
+            scoreRowAgainstMood(
+              { title: a.title, author: a.author, description: a.description, genres: a.genres },
+              mood
+            ) -
+              scoreRowAgainstMood(
+                { title: b.title, author: b.author, description: b.description, genres: b.genres },
+                mood
+              ) ||
+            Math.random() - 0.5
+        );
+      } else {
+        ranked.sort(() => Math.random() - 0.5);
+      }
+      const limitedBooks = ranked.slice(0, limit);
       
       // Transform to match expected format
       const books = limitedBooks.map(book => ({
@@ -5884,7 +5396,21 @@ export default function SuggestionsScreen() {
         isbn: null,
         pageCount: null,
         language: 'en',
-        awards: book.awards || []
+        awards: book.awards || [],
+        estimatedLength:
+          typeof book.estimatedLength === 'string' && book.estimatedLength.trim()
+            ? book.estimatedLength.trim()
+            : 'unknown',
+        reason:
+          book.dataReason?.trim() || `Suggested from the FiftyList enriched book catalog.`,
+        confidence:
+          book.dataConfidence === 'high'
+            ? 1
+            : book.dataConfidence === 'medium'
+              ? 0.75
+              : book.dataConfidence === 'low'
+                ? 0.5
+                : 0.85,
       }));
       
       // Cache the results
@@ -5900,9 +5426,15 @@ export default function SuggestionsScreen() {
   };
 
   // Hard-coded movie function - zero API calls, instant results
-  const fetchMoviesFromHardCodedData = async (genre: string, limit: number = 20): Promise<any[]> => {
-    const cacheKey = `hardcoded-movies-${genre}-${limit}`;
-    
+  const fetchMoviesFromHardCodedData = async (
+    genre: string,
+    limit: number = 20,
+    mood: MoodSignals | null = null
+  ): Promise<any[]> => {
+    const moodKey =
+      mood && moodSignalsAreActionable(mood) ? mood.rawLower.slice(0, 32).replace(/\s+/g, '-') : 'none';
+    const cacheKey = `hardcoded-movies-${genre}-${limit}-${moodKey}`;
+
     // Check cache first
     const cached = apiCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
@@ -5913,9 +5445,12 @@ export default function SuggestionsScreen() {
     try {
       console.log(`🎬 Fetching ${limit} ${genre} movies from hard-coded dataset...`);
       
+      const movieGenreLc = String(genre ?? '').toLowerCase();
       // Filter movies by genre from comprehensive dataset
-      let filteredMovies = COMPREHENSIVE_MOVIE_DATA.filter(movie => 
-        movie.genres.some(g => g.toLowerCase().includes(genre.toLowerCase()))
+      let filteredMovies = COMPREHENSIVE_MOVIE_DATA.filter(
+        (movie) =>
+          Array.isArray(movie.genres) &&
+          movie.genres.some((g) => typeof g === 'string' && g.toLowerCase().includes(movieGenreLc))
       );
       
       // If no exact matches, try broader genre matching
@@ -5931,15 +5466,35 @@ export default function SuggestionsScreen() {
           'documentary': ['documentary', 'non-fiction']
         };
         
-        const targetGenres = genreMappings[genre] || [genre];
-        filteredMovies = COMPREHENSIVE_MOVIE_DATA.filter(movie => 
-          movie.genres.some(g => targetGenres.some(tg => g.toLowerCase().includes(tg.toLowerCase())))
+        const targetGenres = genreMappings[movieGenreLc] || [genre];
+        filteredMovies = COMPREHENSIVE_MOVIE_DATA.filter(
+          (movie) =>
+            Array.isArray(movie.genres) &&
+            movie.genres.some((g) =>
+              typeof g === 'string' &&
+              targetGenres.some((tg) => typeof tg === 'string' && g.toLowerCase().includes(tg.toLowerCase()))
+            )
         );
       }
       
-      // Shuffle and limit results
-      const shuffled = filteredMovies.sort(() => Math.random() - 0.5);
-      const limitedMovies = shuffled.slice(0, limit);
+      let ranked = [...filteredMovies];
+      if (mood && moodSignalsAreActionable(mood)) {
+        ranked.sort(
+          (a, b) =>
+            scoreRowAgainstMood(
+              { title: a.title, author: a.author, description: a.description, genres: a.genres },
+              mood
+            ) -
+              scoreRowAgainstMood(
+                { title: b.title, author: b.author, description: b.description, genres: b.genres },
+                mood
+              ) ||
+            Math.random() - 0.5
+        );
+      } else {
+        ranked.sort(() => Math.random() - 0.5);
+      }
+      const limitedMovies = ranked.slice(0, limit);
       
       // Transform to match expected format
       const movies = limitedMovies.map(movie => ({
@@ -6034,7 +5589,10 @@ export default function SuggestionsScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, Platform.OS === 'web' && styles.webContainer]}>
+    <SafeAreaView
+      style={[styles.container, Platform.OS === 'web' && styles.webContainer]}
+      edges={['top']}
+    >
       <Header
         title="Suggestions"
         onAddPress={() => {
@@ -6065,10 +5623,10 @@ export default function SuggestionsScreen() {
         }}
         onExportPress={handleExport}
         onImportPress={() => importItems([], [])}
-        primaryColor="#8B5CF6"
-        secondaryColor="#7C3AED"
+        primaryColor={AMBER_PRIMARY}
+        secondaryColor={AMBER_DARK}
         isDark={false}
-        backgroundColor="#F3F4F6"
+        backgroundColor={SAND_BACKGROUND}
       />
 
       {/* Search functionality now handled by the search input below */}
@@ -6080,6 +5638,13 @@ export default function SuggestionsScreen() {
         </Text>
       </View>
 
+      {llmRefineStatus && (
+        <View style={styles.llmRefineStatusRow}>
+          <Sparkles size={12} color={AMBER_PRIMARY} />
+          <Text style={styles.llmRefineStatusText}>{llmRefineStatus}</Text>
+        </View>
+      )}
+
       {/* Predictive Preloading Indicator */}
       {isPredictiveLoading && (
         <View style={styles.predictiveIndicator}>
@@ -6087,7 +5652,7 @@ export default function SuggestionsScreen() {
             inputRange: [0, 1],
             outputRange: ['0deg', '360deg']
           })}] }]}>
-            <RefreshCw size={12} color="#8B5CF6" />
+            <RefreshCw size={12} color={AMBER_PRIMARY} />
           </Animated.View>
           <Text style={styles.predictiveText}>
             🔮 Learning your preferences...
@@ -6098,7 +5663,7 @@ export default function SuggestionsScreen() {
       {/* Semantic Similarity Indicator */}
       {activeFilter === 'semantic' && (
         <View style={styles.semanticIndicator}>
-          <Lightbulb size={12} color="#8B5CF6" />
+          <Lightbulb size={12} color={AMBER_PRIMARY} />
           <Text style={styles.semanticText}>
             🧠 Showing semantically similar content
           </Text>
@@ -6123,7 +5688,7 @@ export default function SuggestionsScreen() {
                   style={[
                     styles.filterChip,
                     isDark && styles.darkFilterChip,
-                    isActive && [styles.activeFilterChip, { backgroundColor: '#8B5CF6' }]
+                    isActive && [styles.activeFilterChip, { backgroundColor: AMBER_PRIMARY }]
                   ]}
                   onPress={() => setActiveFilter(option.key as FilterOption)}
                 >
@@ -6145,22 +5710,24 @@ export default function SuggestionsScreen() {
         </ScrollView>
 
         <TouchableOpacity
-          style={[styles.sortButton, isRefreshing && styles.refreshingButton]}
+          style={[styles.controlActionButton, isRefreshing && styles.refreshingButton]}
           onPress={handleRefresh}
           disabled={isRefreshing}
+          accessibilityLabel="Refresh suggestions"
         >
           <RefreshCw 
-            size={16} 
-            color={isRefreshing ? "#9CA3AF" : "#6B7280"} 
+            size={18} 
+            color={isRefreshing ? "#9CA3AF" : AMBER_DARK} 
             style={isRefreshing ? { transform: [{ rotate: '360deg' }] } : undefined}
           />
         </TouchableOpacity>
         
         <TouchableOpacity
-          style={styles.sortButton}
+          style={styles.controlActionButton}
           onPress={() => setShowFilters(!showFilters)}
+          accessibilityLabel="Sort and filter options"
         >
-          <SlidersHorizontal size={16} color="#6B7280" />
+          <SlidersHorizontal size={18} color={AMBER_DARK} />
         </TouchableOpacity>
       </View>
 
@@ -6193,11 +5760,169 @@ export default function SuggestionsScreen() {
         </View>
       )}
 
+      {showLlmAssistPanel && (
+        <View style={styles.llmAssistPanel}>
+          <View style={styles.llmAssistTabRow}>
+            <Pressable
+              style={[
+                styles.llmAssistTab,
+                llmAssistPanelTab === 'refine-books' && styles.llmAssistTabActive,
+              ]}
+              onPress={() => setLlmAssistPanelTab('refine-books')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: llmAssistPanelTab === 'refine-books' }}
+            >
+              <Text
+                style={[
+                  styles.llmAssistTabText,
+                  llmAssistPanelTab === 'refine-books' && styles.llmAssistTabTextActive,
+                ]}
+              >
+                Refine books
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.llmAssistTab,
+                llmAssistPanelTab === 'refine-movies' && styles.llmAssistTabActive,
+              ]}
+              onPress={() => setLlmAssistPanelTab('refine-movies')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: llmAssistPanelTab === 'refine-movies' }}
+            >
+              <Text
+                style={[
+                  styles.llmAssistTabText,
+                  llmAssistPanelTab === 'refine-movies' && styles.llmAssistTabTextActive,
+                ]}
+              >
+                Refine movies
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.llmAssistTab,
+                llmAssistPanelTab === 'taste' && styles.llmAssistTabActive,
+                !hasTasteSnapshot && styles.llmAssistTabDisabled,
+              ]}
+              onPress={() => hasTasteSnapshot && setLlmAssistPanelTab('taste')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: llmAssistPanelTab === 'taste' }}
+            >
+              <Text
+                style={[
+                  styles.llmAssistTabText,
+                  llmAssistPanelTab === 'taste' && styles.llmAssistTabTextActive,
+                  !hasTasteSnapshot && styles.llmAssistTabTextDisabled,
+                ]}
+              >
+                Taste
+              </Text>
+            </Pressable>
+          </View>
+
+          {llmAssistPanelTab === 'refine-books' ? (
+            <View style={styles.llmAssistTabBody}>
+              <Text style={styles.llmContextSub}>
+                Rebuilds book suggestions from the catalog—genres, copy, and ranking—for this phrase
+                only.
+              </Text>
+              {!llmRefineEnabled && (
+                <Text style={styles.llmContextPremiumHint}>
+                  Premium unlocks AI refine. In the simulator, subscribe via Settings → Upgrade (dev
+                  simulates purchase).
+                </Text>
+              )}
+              {!ENABLE_LLM_ASSIST && __DEV__ && (
+                <Text style={styles.llmContextPremiumHint}>
+                  Set EXPO_PUBLIC_ENABLE_LLM_ASSIST=true in .env and restart Metro for live proxy
+                  calls.
+                </Text>
+              )}
+              <TextInput
+                style={[styles.llmContextInput, !llmRefineEnabled && styles.llmContextInputDisabled]}
+                placeholder="e.g. adventure nonfiction like Into Thin Air…"
+                placeholderTextColor="#A8A29E"
+                value={llmBookRefineContext}
+                onChangeText={(text) => setLlmBookRefineContext(text.slice(0, 120))}
+                maxLength={120}
+                multiline={false}
+                returnKeyType="done"
+                editable={llmRefineEnabled}
+              />
+              <View style={styles.llmMeterTrack} pointerEvents="none">
+                <View
+                  style={[
+                    styles.llmMeterFill,
+                    {
+                      width: `${Math.round((llmBookRefineContext.length / 120) * 100)}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : llmAssistPanelTab === 'refine-movies' ? (
+            <View style={styles.llmAssistTabBody}>
+              <Text style={styles.llmContextSub}>
+                Rebuilds movie suggestions from the catalog—genres, copy, and ranking—for this
+                phrase only.
+              </Text>
+              {!llmRefineEnabled && (
+                <Text style={styles.llmContextPremiumHint}>
+                  Premium unlocks AI refine. In the simulator, subscribe via Settings → Upgrade (dev
+                  simulates purchase).
+                </Text>
+              )}
+              <TextInput
+                style={[styles.llmContextInput, !llmRefineEnabled && styles.llmContextInputDisabled]}
+                placeholder="e.g. tense thrillers, A24 dramas…"
+                placeholderTextColor="#A8A29E"
+                value={llmMovieRefineContext}
+                onChangeText={(text) => setLlmMovieRefineContext(text.slice(0, 120))}
+                maxLength={120}
+                multiline={false}
+                returnKeyType="done"
+                editable={llmRefineEnabled}
+              />
+              <View style={styles.llmMeterTrack} pointerEvents="none">
+                <View
+                  style={[
+                    styles.llmMeterFill,
+                    {
+                      width: `${Math.round((llmMovieRefineContext.length / 120) * 100)}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.llmAssistTabBody}>
+              {hasTasteSnapshot ? (
+                <ScrollView
+                  style={[styles.llmTasteScroll, { maxHeight: TASTE_SNAPSHOT_SCROLL_HEIGHT }]}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                >
+                  <Text style={styles.llmTasteProfileText}>{tasteProfileNarrative}</Text>
+                </ScrollView>
+              ) : (
+                <Text style={styles.llmTasteProfilePlaceholder}>
+                  {llmRefineEnabled
+                    ? 'Your taste snapshot will appear here after we learn from your rated items.'
+                    : 'Enable premium AI to generate a taste snapshot from your lists.'}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
+
       {/* Suggestions List */}
       <FlatList
         data={filteredAndSortedSuggestions}
         keyExtractor={(item) => item.id}
         renderItem={renderSuggestionCard}
+        style={styles.listScroll}
         contentContainerStyle={[
           styles.listContent,
           Platform.OS === 'web' && styles.webListContent
@@ -6214,7 +5939,7 @@ export default function SuggestionsScreen() {
             return (
               <View style={styles.loadingState}>
                 <Animated.View style={[styles.loadingSpinner, { transform: [{ rotate: spin }] }]}>
-                  <RefreshCw size={48} color="#3B82F6" />
+                  <RefreshCw size={48} color={AMBER_PRIMARY} />
                 </Animated.View>
                 <Text style={styles.loadingText}>
                   {isSearching ? 'Searching...' : 'Loading recommendations...'}
@@ -6279,17 +6004,6 @@ export default function SuggestionsScreen() {
         confirmText="OK"
       />
 
-      {/* Loading State */}
-      {isLoadingSuggestions && suggestions.length === 0 && (
-        <View style={styles.loadingContainer}>
-          <Animated.View style={[styles.loadingSpinner, { transform: [{ rotate: spinValue.interpolate({
-            inputRange: [0, 1],
-            outputRange: ['0deg', '360deg']
-          })}] }]} />
-          <Text style={styles.loadingText}>Loading recommendations...</Text>
-        </View>
-      )}
-
       {/* Add/Edit Modal */}
       <AddEditModal
         visible={showAddModal}
@@ -6308,7 +6022,11 @@ export default function SuggestionsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: SAND_BACKGROUND,
+  },
+  listScroll: {
+    flex: 1,
+    backgroundColor: SAND_BACKGROUND,
   },
   webContainer: {
     minHeight: '100%',
@@ -6345,7 +6063,7 @@ const styles = StyleSheet.create({
     borderColor: '#4B5563',
   },
   activeFilterChip: {
-    borderColor: '#8B5CF6',
+    borderColor: AMBER_PRIMARY,
   },
   filterText: {
     fontSize: 12,
@@ -6365,6 +6083,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  controlActionButton: {
+    minWidth: 48,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: BORDER_WARM,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 6,
+    shadowOpacity: 1,
+    elevation: 2,
+  },
   sortContainer: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 20,
@@ -6380,6 +6115,113 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 12,
   },
+  llmAssistPanel: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: BORDER_WARM,
+    overflow: 'hidden',
+    shadowColor: 'rgba(0,0,0,0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    shadowOpacity: 1,
+    elevation: 2,
+  },
+  llmAssistTabRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_WARM,
+    backgroundColor: '#FFFBF5',
+  },
+  llmAssistTab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  llmAssistTabActive: {
+    borderBottomColor: AMBER_PRIMARY,
+    backgroundColor: '#FFFFFF',
+  },
+  llmAssistTabDisabled: {
+    opacity: 0.45,
+  },
+  llmAssistTabText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: '#78716C',
+  },
+  llmAssistTabTextActive: {
+    fontFamily: 'Inter-SemiBold',
+    color: AMBER_DARK,
+  },
+  llmAssistTabTextDisabled: {
+    color: '#A8A29E',
+  },
+  llmAssistTabBody: {
+    padding: 16,
+  },
+  llmContextSub: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#78716C',
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+  llmContextInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: BORDER_WARM,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#292524',
+    backgroundColor: '#FAFAF9',
+  },
+  llmContextInputDisabled: {
+    opacity: 0.55,
+    backgroundColor: '#F5F5F4',
+  },
+  llmContextPremiumHint: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: '#B45309',
+    marginBottom: 8,
+    lineHeight: 16,
+  },
+  llmMeterTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(217,119,6,0.12)',
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  llmMeterFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: 'rgba(217,119,6,0.45)',
+    minWidth: 2,
+  },
+  llmTasteScroll: {
+    flexGrow: 0,
+  },
+  llmTasteProfileText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#44403C',
+    lineHeight: 21,
+  },
+  llmTasteProfilePlaceholder: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#78716C',
+    lineHeight: 20,
+  },
   sortOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -6392,7 +6234,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   activeSortOption: {
-    backgroundColor: '#8B5CF6',
+    backgroundColor: AMBER_PRIMARY,
   },
   sortOptionText: {
     fontSize: 12,
@@ -6403,87 +6245,175 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: 8,
+    flexGrow: 1,
   },
   webListContent: {
     paddingBottom: 40,
     minHeight: '100%',
   },
   suggestionCard: {
+    position: 'relative',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    paddingTop: 18,
     marginHorizontal: 20,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: 'rgba(0,0,0,0.08)',
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 1,
+    shadowRadius: 10,
     elevation: 4,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: BORDER_WARM,
+  },
+  favoriteCornerHit: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 2,
+    padding: 4,
+  },
+  suggestionCardBody: {
+    paddingRight: 36,
+  },
+  suggestionPressableOutline: {
+    borderRadius: 12,
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+    marginBottom: -4,
+  },
+  suggestionPressablePressed: {
+    backgroundColor: 'rgba(217, 119, 6, 0.06)',
+  },
+  expandedDetailBlock: {
+    marginTop: 8,
+    paddingTop: 4,
+  },
+  detailRevealHint: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: AMBER_DARK,
+    marginTop: 10,
+  },
+  detailCollapse: {
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+    color: AMBER_DARK,
+    marginTop: 10,
+    marginBottom: 2,
   },
   suggestionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
+    gap: 8,
   },
   suggestionType: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
   },
   typeText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
-    color: '#6B7280',
+    color: '#57534E',
   },
-  confidenceBadge: {
+  matchQualityPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(217, 119, 6, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(180, 83, 9, 0.25)',
+    maxWidth: '58%',
+  },
+  matchQualityPillText: {
+    fontSize: 11,
+    fontFamily: 'Inter-SemiBold',
+    color: AMBER_DARK,
+  },
+  suggestionTitle: {
+    fontSize: 19,
+    fontFamily: 'Inter-SemiBold',
+    color: '#1C1917',
+    marginBottom: 6,
+    lineHeight: 24,
+  },
+  suggestionReasonLead: {
+    fontSize: 15,
+    fontFamily: 'Inter-Medium',
+    color: AMBER_PRIMARY,
+    lineHeight: 22,
+    marginBottom: 6,
+  },
+  suggestionLlmCaveat: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#78716C',
+    fontStyle: 'italic',
+    lineHeight: 17,
+    marginBottom: 6,
+  },
+  suggestionFormatChip: {
+    alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+    backgroundColor: 'rgba(217, 119, 6, 0.12)',
+    marginBottom: 8,
   },
-  confidenceText: {
-    fontSize: 10,
+  suggestionFormatChipText: {
+    fontSize: 11,
     fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-  },
-  suggestionTitle: {
-    fontSize: 18,
-    fontFamily: 'Inter-SemiBold',
-    color: '#111827',
-    marginBottom: 4,
+    color: AMBER_DARK,
   },
   suggestionAuthor: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  suggestionReason: {
-    fontSize: 11,
-    fontFamily: 'Inter-Regular',
-    color: '#9CA3AF',
-    fontStyle: 'italic',
-    marginBottom: 4,
+    color: '#57534E',
+    marginBottom: 10,
   },
   suggestionDescription: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: '#374151',
-    lineHeight: 20,
+    color: '#44403C',
+    lineHeight: 21,
     marginBottom: 4,
+    marginTop: 4,
   },
-  expandText: {
-    fontSize: 12,
+  suggestionMetaCompact: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  metaTextInline: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#78716C',
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  ratingTextStrong: {
+    fontSize: 13,
+    fontFamily: 'Inter-SemiBold',
+    color: '#44403C',
+  },
+  ratingText: {
+    fontSize: 11,
     fontFamily: 'Inter-Medium',
-    color: '#8B5CF6',
-    marginBottom: 12,
-    textAlign: 'center',
+    color: '#9CA3AF',
   },
   suggestionMeta: {
     flexDirection: 'row',
@@ -6497,55 +6427,61 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#9CA3AF',
   },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ratingText: {
-    fontSize: 11,
-    fontFamily: 'Inter-Medium',
-    color: '#9CA3AF',
-  },
   buttonContainer: {
     flexDirection: 'column',
-    gap: 12,
+    gap: 10,
+    marginTop: 4,
   },
-  addButton: {
+  addButtonFullWidth: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
+    gap: 10,
+    paddingVertical: 15,
     paddingHorizontal: 20,
-    borderRadius: 12,
-    minHeight: 48,
-    shadowColor: '#000',
+    borderRadius: 14,
+    minHeight: 52,
+    width: '100%',
+    shadowColor: 'rgba(0,0,0,0.1)',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 1,
+    shadowRadius: 6,
     elevation: 3,
   },
-  addedButton: {
-    backgroundColor: '#8B5CF6',
-    opacity: 0.7,
+  addedButtonWarm: {
+    opacity: 0.78,
   },
-  successButton: {
-    backgroundColor: '#8B5CF6', // Purple for consistency
-    transform: [{ scale: 1.2 }], // Larger scale
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
+  successButtonWarm: {
+    opacity: 1,
+    transform: [{ scale: 1.03 }],
+    shadowColor: AMBER_PRIMARY,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 8,
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: '#FFFFFF',
   },
   addButtonText: {
-    fontSize: 15,
+    fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
     letterSpacing: 0.3,
+  },
+  notForMeButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(180, 83, 9, 0.35)',
+    backgroundColor: '#FAF6F0',
+    width: '100%',
+  },
+  notForMeText: {
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+    color: '#5C5449',
   },
   dismissButton: {
     paddingHorizontal: 16,
@@ -6561,46 +6497,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#6B7280',
-  },
-  feedbackButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  feedbackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  thumbsUpButton: {
-    borderColor: '#8B5CF6',
-    backgroundColor: '#FFFFFF',
-  },
-  thumbsDownButton: {
-    borderColor: '#6B7280',
-    backgroundColor: '#FFFFFF',
-  },
-  activeThumbsUp: {
-    backgroundColor: '#8B5CF6',
-    borderColor: '#8B5CF6',
-  },
-  activeThumbsDown: {
-    backgroundColor: '#6B7280',
-    borderColor: '#6B7280',
   },
   emptyState: {
     alignItems: 'center',
@@ -6646,6 +6542,20 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'center',
   },
+  llmRefineStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 6,
+  },
+  llmRefineStatusText: {
+    fontSize: 11,
+    fontFamily: 'Inter-Medium',
+    color: AMBER_DARK,
+    textAlign: 'center',
+    marginLeft: 6,
+  },
   loadingState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -6658,7 +6568,7 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
-    color: '#3B82F6',
+    color: AMBER_DARK,
     marginBottom: 8,
     textAlign: 'center',
   },
@@ -6682,10 +6592,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255,255,255,0.75)',
     marginHorizontal: 20,
     marginBottom: 8,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BORDER_WARM,
   },
   predictiveSpinner: {
     marginRight: 8,
@@ -6693,7 +6605,7 @@ const styles = StyleSheet.create({
   predictiveText: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: '#8B5CF6',
+    color: AMBER_DARK,
   },
   semanticIndicator: {
     flexDirection: 'row',
@@ -6717,12 +6629,15 @@ const styles = StyleSheet.create({
   semanticTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF3C7',
+    backgroundColor: 'rgba(251, 243, 217, 0.9)',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingVertical: 5,
+    borderRadius: 8,
     alignSelf: 'flex-start',
     marginTop: 4,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: BORDER_WARM,
   },
   semanticTagText: {
     fontSize: 10,

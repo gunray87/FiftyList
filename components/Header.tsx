@@ -58,7 +58,7 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
                 accessibilityLabel="Search"
                 accessibilityHint="Show search bar to find items"
               >
-                <Search size={16} color="#64748B" />
+                <Search size={18} color="#475569" strokeWidth={2.25} />
               </TouchableOpacity>
             )}
             <TouchableOpacity 
@@ -68,7 +68,7 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
               accessibilityLabel="Settings"
               accessibilityHint="Open app settings and options"
             >
-              <Settings size={16} color="#64748B" />
+              <Settings size={18} color="#475569" strokeWidth={2.25} />
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.actionButton} 
@@ -77,7 +77,7 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
               accessibilityLabel="Add new item"
               accessibilityHint="Add a new book or movie to your list"
             >
-              <Plus size={16} color="#64748B" />
+              <Plus size={18} color="#475569" strokeWidth={2.25} />
             </TouchableOpacity>
           </View>
         </View>
@@ -135,12 +135,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.78)',
     alignItems: 'center',
     justifyContent: 'center',
-    backdropFilter: 'blur(10px)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 1,
+    ...(Platform.OS === 'web' ? { backdropFilter: 'blur(10px)' } : {}),
   },
 });

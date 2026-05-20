@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,11 @@ import {
   ScrollView,
 } from 'react-native';
 import { X, Crown, Check, Zap, TrendingUp } from 'lucide-react-native';
-import { useAuth } from '@/hooks/useAuth';
-import AuthModal from './AuthModal';
 
 interface UpgradeModalProps {
   visible: boolean;
   onClose: () => void;
-  onSelectPlan: (plan: 'monthly' | 'yearly') => void;
+  onSelectPlan: (tier: 'entry' | 'premium') => void;
   isDark?: boolean;
   triggerFeature?: string; // What feature triggered the paywall
 }
@@ -26,17 +24,8 @@ export default function UpgradeModal({
   isDark = false,
   triggerFeature,
 }: UpgradeModalProps) {
-  const { user } = useAuth();
-  const [showAuth, setShowAuth] = useState(false);
-
-  const handleSelectPlan = (plan: 'monthly' | 'yearly') => {
-    if (!user) {
-      // User not logged in - show auth modal
-      setShowAuth(true);
-    } else {
-      // User logged in - proceed with upgrade
-      onSelectPlan(plan);
-    }
+  const handleSelectPlan = (tier: 'entry' | 'premium') => {
+    onSelectPlan(tier);
   };
 
   const features = [
@@ -63,7 +52,7 @@ export default function UpgradeModal({
           <View style={styles.headerLeft}>
             <Crown size={24} color="#8B5CF6" />
             <Text style={[styles.title, isDark && styles.darkText]}>
-              Upgrade to Premium
+              Choose Your Utility Plan
             </Text>
           </View>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -76,7 +65,7 @@ export default function UpgradeModal({
           {triggerFeature && (
             <View style={styles.triggerBanner}>
               <Text style={[styles.triggerText, isDark && styles.darkText]}>
-                🔒 {triggerFeature} requires Premium
+                🔒 {triggerFeature} requires a paid tier
               </Text>
             </View>
           )}
@@ -121,42 +110,42 @@ export default function UpgradeModal({
           {/* Pricing Cards */}
           <View style={styles.pricingSection}>
             <Text style={[styles.sectionTitle, isDark && styles.darkText]}>
-              Choose Your Plan
+              Choose Your Monthly Tier
             </Text>
 
-            {/* Yearly Plan (Recommended) */}
+            {/* Premium Tier */}
             <TouchableOpacity
               style={[styles.pricingCard, styles.pricingCardRecommended, isDark && styles.darkPricingCard]}
-              onPress={() => handleSelectPlan('yearly')}
+              onPress={() => handleSelectPlan('premium')}
             >
               <View style={styles.recommendedBadge}>
-                <Text style={styles.recommendedText}>BEST VALUE</Text>
+                <Text style={styles.recommendedText}>LLM INCLUDED</Text>
               </View>
               <View style={styles.pricingHeader}>
                 <Text style={[styles.pricingTitle, isDark && styles.darkText]}>
-                  Yearly
+                  Premium Utility
                 </Text>
                 <View style={styles.pricingPrice}>
-                  <Text style={[styles.price, isDark && styles.darkText]}>$19.99</Text>
-                  <Text style={[styles.pricingPeriod, isDark && styles.darkSecondaryText]}>/year</Text>
+                  <Text style={[styles.price, isDark && styles.darkText]}>$9.99</Text>
+                  <Text style={[styles.pricingPeriod, isDark && styles.darkSecondaryText]}>/month</Text>
                 </View>
               </View>
               <Text style={[styles.pricingSavings, isDark && styles.darkSecondaryText]}>
-                Save 44% compared to monthly
+                Includes LLM search and AI-assisted item creation
               </Text>
               <Text style={[styles.pricingEquivalent, isDark && styles.darkTertiaryText]}>
-                Just $1.67/month
+                Best for power users
               </Text>
             </TouchableOpacity>
 
-            {/* Monthly Plan */}
+            {/* Entry Tier */}
             <TouchableOpacity
               style={[styles.pricingCard, isDark && styles.darkPricingCard]}
-              onPress={() => handleSelectPlan('monthly')}
+              onPress={() => handleSelectPlan('entry')}
             >
               <View style={styles.pricingHeader}>
                 <Text style={[styles.pricingTitle, isDark && styles.darkText]}>
-                  Monthly
+                  Entry Utility
                 </Text>
                 <View style={styles.pricingPrice}>
                   <Text style={[styles.price, isDark && styles.darkText]}>$2.99</Text>
@@ -164,28 +153,20 @@ export default function UpgradeModal({
                 </View>
               </View>
               <Text style={[styles.pricingDescription, isDark && styles.darkSecondaryText]}>
-                Flexible monthly subscription
+                Core utility features without LLM
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Free Tier Reminder */}
+          {/* Local-first note */}
           <View style={[styles.freeTierNote, isDark && styles.darkFreeTierNote]}>
             <Text style={[styles.freeTierText, isDark && styles.darkSecondaryText]}>
-              💡 Your current free tier includes access to 1,000+ books and 500+ movies in our local database, unlimited item tracking, and all core features.
+              💡 Both tiers keep your lists local on-device. Premium adds AI-powered features.
             </Text>
           </View>
         </ScrollView>
       </View>
     </Modal>
-
-    {/* Auth Modal */}
-    <AuthModal
-      visible={showAuth}
-      onClose={() => setShowAuth(false)}
-      initialMode="signup"
-      isDark={isDark}
-    />
   </>
   );
 }

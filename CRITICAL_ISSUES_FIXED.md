@@ -232,12 +232,12 @@ const startFreeTrial = async () => {
 5. ❌ No conversion flow
 
 ### Required Implementation
-**Phase 1: Add Authentication (4-6 hours)**
-1. Choose auth provider (Supabase recommended)
-2. Install dependencies
-3. Create auth context
-4. Build signup/login UI
-5. Connect trial to user account
+**Phase 1: Add Real Purchase Entitlements (4-6 hours)**
+1. Install RevenueCat SDK
+2. Configure App Store products
+3. Wire purchase + restore flows
+4. Connect feature gates to entitlements
+5. Validate trial/plan conversion paths
 
 **Phase 2: Backend Integration (2-4 hours)**
 1. Set up backend database
@@ -247,13 +247,13 @@ const startFreeTrial = async () => {
 5. Implement trial-to-paid conversion
 
 ### Blocking Issues
-- No authentication system exists
-- No backend configured
-- No user database
-- Decision needed: Which auth provider?
+- No real purchase entitlement system exists
+- No restore purchases flow is wired
+- No receipt-backed validation for premium unlocks
+- Decision needed: RevenueCat product + entitlement mapping
 
 ### Recommendation
-**DO NOT ENABLE FREE TRIALS** until authentication is implemented.
+**DO NOT ENABLE FREE TRIALS** until entitlement validation is implemented.
 
 For now:
 - Remove "Start Free Trial" button from UpgradeModal
@@ -311,7 +311,7 @@ grep -n "enhancedAPIService" components/AddEditModal.tsx
 1. Issue #4: Add upgrade button to error messages
 
 ### 🚧 **REQUIRES MAJOR WORK (8+ hours)**
-1. Issue #5: Authentication system for trials
+1. Issue #5: Entitlement system for trials
 2. Issue #6: API implementation verification
 
 ---
@@ -360,11 +360,11 @@ Before marking as "complete":
    - Document that APIs need to be implemented
 
 ### Medium Term (Next 2 Weeks)
-1. Design authentication system
-2. Choose auth provider (Supabase/Firebase)
-3. Implement signup/login flow
-4. Connect trials to user accounts
-5. Set up backend subscription tracking
+1. Finalize RevenueCat product strategy
+2. Implement purchase + restore flow
+3. Connect trials to entitlements (if trial enabled)
+4. Add server-side validation only if needed later
+5. QA premium gating across app sessions
 
 ### Long Term (Before Launch)
 1. Implement real payment processing (RevenueCat + Apple IAP)

@@ -58,7 +58,7 @@ export class ActivitySharing {
       const movies = groups.completed.filter(a => a.itemType === 'movie');
 
       if (books.length > 0) {
-        summary += `📚 **Books I finished:**\n`;
+        summary += `**Books I finished:**\n`;
         books.forEach(book => {
           const rating = book.metadata?.rating ? ` (rated ${book.metadata.rating}/5)` : '';
           summary += `• "${book.itemTitle}" by ${book.itemAuthor}${rating}\n`;
@@ -67,7 +67,7 @@ export class ActivitySharing {
       }
 
       if (movies.length > 0) {
-        summary += `🎬 **Movies I watched:**\n`;
+        summary += `**Movies I watched:**\n`;
         movies.forEach(movie => {
           const rating = movie.metadata?.rating ? ` (rated ${movie.metadata.rating}/5)` : '';
           summary += `• "${movie.itemTitle}" directed by ${movie.itemAuthor}${rating}\n`;
@@ -82,7 +82,7 @@ export class ActivitySharing {
       const movies = groups.added.filter(a => a.itemType === 'movie');
 
       if (books.length > 0) {
-        summary += `📖 **Books I added to my list:**\n`;
+        summary += `**Books I added to my list:**\n`;
         books.forEach(book => {
           summary += `• "${book.itemTitle}" by ${book.itemAuthor}\n`;
         });
@@ -90,7 +90,7 @@ export class ActivitySharing {
       }
 
       if (movies.length > 0) {
-        summary += `🎭 **Movies I added to my list:**\n`;
+        summary += `**Movies I added to my list:**\n`;
         movies.forEach(movie => {
           summary += `• "${movie.itemTitle}" directed by ${movie.itemAuthor}\n`;
         });
@@ -104,7 +104,7 @@ export class ActivitySharing {
       const movies = groups.started.filter(a => a.itemType === 'movie');
 
       if (books.length > 0) {
-        summary += `📖 **Books I started reading:**\n`;
+        summary += `**Books I started reading:**\n`;
         books.forEach(book => {
           summary += `• "${book.itemTitle}" by ${book.itemAuthor}\n`;
         });
@@ -112,7 +112,7 @@ export class ActivitySharing {
       }
 
       if (movies.length > 0) {
-        summary += `🎭 **Movies I started watching:**\n`;
+        summary += `**Movies I started watching:**\n`;
         movies.forEach(movie => {
           summary += `• "${movie.itemTitle}" directed by ${movie.itemAuthor}\n`;
         });
@@ -126,7 +126,7 @@ export class ActivitySharing {
       const movies = groups.rated.filter(a => a.itemType === 'movie');
 
       if (books.length > 0 || movies.length > 0) {
-        summary += `⭐ **Recent ratings:**\n`;
+        summary += `**Recent ratings:**\n`;
         [...books, ...movies].forEach(item => {
           const rating = item.metadata?.rating;
           if (rating) {
@@ -144,7 +144,7 @@ export class ActivitySharing {
     const totalStarted = groups.started.length;
 
     if (totalCompleted > 0 || totalAdded > 0 || totalStarted > 0) {
-      summary += `📊 **Summary:** ${totalCompleted} completed, ${totalStarted} in progress, ${totalAdded} added to my list.\n\n`;
+      summary += `**Summary:** ${totalCompleted} completed, ${totalStarted} in progress, ${totalAdded} added to my list.\n\n`;
     }
 
     summary += `---\nShared from FiftyList - my reading and watching tracker`;
@@ -207,7 +207,7 @@ export class ActivitySharing {
             action = `${activity.type} "${activity.itemTitle}"`;
         }
 
-        const type = activity.itemType === 'book' ? '📚' : '🎬';
+        const type = activity.itemType === 'book' ? '[Book]' : '[Movie]';
         detailed += `${time} ${type} ${action}\n`;
       });
       
@@ -232,10 +232,10 @@ export class ActivitySharing {
     const movies = activities.filter(a => a.itemType === 'movie');
 
     if (books.length > 0) {
-      list += `📚 **Books (${books.length}):**\n`;
+      list += `**Books (${books.length}):**\n`;
       books.forEach(book => {
-        const status = book.type === 'completed' ? '✅' : 
-                      book.type === 'started' ? '📖' : '📋';
+        const status = book.type === 'completed' ? '[Done] ' : 
+                      book.type === 'started' ? '[Reading] ' : '[List] ';
         const rating = book.metadata?.rating ? ` (${book.metadata.rating}/5)` : '';
         list += `${status} "${book.itemTitle}" by ${book.itemAuthor}${rating}\n`;
       });
@@ -243,10 +243,10 @@ export class ActivitySharing {
     }
 
     if (movies.length > 0) {
-      list += `🎬 **Movies (${movies.length}):**\n`;
+      list += `**Movies (${movies.length}):**\n`;
       movies.forEach(movie => {
-        const status = movie.type === 'completed' ? '✅' : 
-                      movie.type === 'started' ? '🎭' : '📋';
+        const status = movie.type === 'completed' ? '[Watched] ' : 
+                      movie.type === 'started' ? '[Watching] ' : '[List] ';
         const rating = movie.metadata?.rating ? ` (${movie.metadata.rating}/5)` : '';
         list += `${status} "${movie.itemTitle}" directed by ${movie.itemAuthor}${rating}\n`;
       });
