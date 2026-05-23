@@ -29,7 +29,7 @@ Whenever you regenerate or replace `enriched_books.json` (or equivalent export) 
 Metro bundles static assets included in the project. Updating only your Downloads folder does not update the app until you sync → commit → rebuild.
 
 **Movies**  
-Hardcoded movies remain in **`COMPREHENSIVE_MOVIE_DATA`** inside `app/(tabs)/suggestions.tsx` unless you refactor them similarly.
+Hardcoded movies live in **`data/comprehensiveMovieCatalog.ts`** (`COMPREHENSIVE_MOVIE_DATA`), same pattern as the book catalog.
 
 ---
 

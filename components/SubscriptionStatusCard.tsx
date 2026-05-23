@@ -7,6 +7,9 @@ interface SubscriptionStatusCardProps {
   subscription: UserSubscription | null;
   features: SubscriptionFeatures;
   onUpgradePress: () => void;
+  onManageSubscription?: () => void;
+  onDowngradeToEntry?: () => void;
+  showManageSubscription?: boolean;
   isDark?: boolean;
 }
 
@@ -14,6 +17,9 @@ export default function SubscriptionStatusCard({
   subscription,
   features,
   onUpgradePress,
+  onManageSubscription,
+  onDowngradeToEntry,
+  showManageSubscription = false,
   isDark = false
 }: SubscriptionStatusCardProps) {
   const tier = subscription?.tier ?? 'free';
@@ -28,7 +34,7 @@ export default function SubscriptionStatusCard({
         <View style={styles.tierBadge}>
           {isPremium && <Crown size={16} color="#F59E0B" />}
           <Text style={[styles.tierName, isDark && styles.darkText]}>
-            {isPremium ? 'Premium Utility' : isEntry ? 'Entry Utility' : 'No Active Plan'}
+            {isPremium ? 'Premium Utility' : isEntry ? 'Entry Utility' : 'No Subscription'}
           </Text>
         </View>
         {isTrial && (
@@ -65,6 +71,24 @@ export default function SubscriptionStatusCard({
           isDark={isDark}
         />
         <FeatureRow
+          icon={features.canTrackPrices ? Check : X}
+          text="Price Tracking & Alerts"
+          enabled={features.canTrackPrices}
+          isDark={isDark}
+        />
+        <FeatureRow
+          icon={features.canGetRecommendations ? Check : X}
+          text="Advanced AI Recommendations"
+          enabled={features.canGetRecommendations}
+          isDark={isDark}
+        />
+        <FeatureRow
+          icon={features.hasPrioritySupport ? Check : X}
+          text="Priority Support"
+          enabled={features.hasPrioritySupport}
+          isDark={isDark}
+        />
+        <FeatureRow
           icon={features.hasUnlimitedItems ? Check : X}
           text="Unlimited Items"
           enabled={features.hasUnlimitedItems}
@@ -72,17 +96,37 @@ export default function SubscriptionStatusCard({
         />
       </View>
 
-      {/* Local Database Info for non-premium users */}
-      {!isPremium && (
+      {/* Unsubscribed: local lists only; pick Entry or Premium */}
+      {tier === 'free' && (
         <View style={styles.localDbInfo}>
           <Text style={[styles.localDbText, isDark && styles.darkSecondaryText]}>
-            📚 Entry tier includes local-first tracking and API search. Upgrade to Premium for LLM features.
+            📚 Your lists stay on this device. Subscribe to Entry or Premium for online search and more.
           </Text>
         </View>
       )}
 
-      {/* Upgrade button for entry/non-subscribed users */}
-      {!isPremium && (
+      {tier === 'free' && (
+        <TouchableOpacity
+          style={styles.upgradeButton}
+          onPress={() => {
+            console.log('🚀 View plans pressed in SubscriptionStatusCard');
+            onUpgradePress();
+          }}
+        >
+          <Text style={styles.upgradeButtonText}>View Entry & Premium Plans</Text>
+          <ChevronRight size={16} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
+
+      {isEntry && (
+        <View style={styles.localDbInfo}>
+          <Text style={[styles.localDbText, isDark && styles.darkSecondaryText]}>
+            📚 Entry includes local tracking and API search. Upgrade to Premium for LLM features.
+          </Text>
+        </View>
+      )}
+
+      {isEntry && (
         <TouchableOpacity
           style={styles.upgradeButton}
           onPress={() => {
@@ -90,9 +134,34 @@ export default function SubscriptionStatusCard({
             onUpgradePress();
           }}
         >
-          <Text style={styles.upgradeButtonText}>{tier === 'entry' ? 'Upgrade to Premium' : 'Choose a Plan'}</Text>
+          <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
           <ChevronRight size={16} color="#FFFFFF" />
         </TouchableOpacity>
+      )}
+
+      {(isPremium || isEntry) && (
+        <View style={styles.planActions}>
+          {showManageSubscription && onManageSubscription ? (
+            <TouchableOpacity
+              style={[styles.secondaryButton, isDark && styles.darkSecondaryButton]}
+              onPress={onManageSubscription}
+            >
+              <Text style={[styles.secondaryButtonText, isDark && styles.darkText]}>
+                Manage in App Store
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {isPremium && onDowngradeToEntry ? (
+            <TouchableOpacity
+              style={[styles.secondaryButton, isDark && styles.darkSecondaryButton]}
+              onPress={onDowngradeToEntry}
+            >
+              <Text style={[styles.secondaryButtonText, isDark && styles.darkText]}>
+                Switch to Entry Plan
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       )}
 
       {/* Expiration Info */}
@@ -227,6 +296,26 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
+  },
+  planActions: {
+    gap: 8,
+    marginTop: 4,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  darkSecondaryButton: {
+    borderColor: '#4B5563',
+  },
+  secondaryButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#374151',
   },
   expirationText: {
     fontSize: 12,

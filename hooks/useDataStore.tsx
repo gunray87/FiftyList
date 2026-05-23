@@ -12,6 +12,7 @@ import {
   logMovieRated
 } from '@/utils/activityLogger';
 import { runStoppedRecoveryAlert } from '@/utils/llmStoppedRecovery';
+import { useSubscription } from '@/hooks/useSubscription';
 
 const initialBooks: BookData = {
   completed: [],
@@ -130,6 +131,7 @@ const DataStoreContext = createContext<DataStoreContextType | undefined>(undefin
   };
 
 export function DataStoreProvider({ children }: { children: ReactNode }) {
+  const { features } = useSubscription();
   const [books, setBooks] = useState<BookData>(initialBooks);
   const [movies, setMovies] = useState<MovieData>(initialMovies);
   const booksRef = useRef(books);
@@ -400,7 +402,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
       if (newBook.category === 'fails') {
         queueMicrotask(() =>
-          void runStoppedRecoveryAlert('book', newBook, newBooks, moviesRef.current)
+          void runStoppedRecoveryAlert('book', newBook, newBooks, moviesRef.current, features.canUseLLM)
         );
       }
       
@@ -490,7 +492,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
     if (recoveryBooks) {
       queueMicrotask(() =>
-        void runStoppedRecoveryAlert('book', updatedBook, recoveryBooks!, moviesRef.current)
+        void runStoppedRecoveryAlert('book', updatedBook, recoveryBooks!, moviesRef.current, features.canUseLLM)
       );
     }
 
@@ -618,7 +620,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
       if (newMovie.category === 'fails') {
         queueMicrotask(() =>
-          void runStoppedRecoveryAlert('movie', newMovie, booksRef.current, newMovies)
+          void runStoppedRecoveryAlert('movie', newMovie, booksRef.current, newMovies, features.canUseLLM)
         );
       }
       
@@ -708,7 +710,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
     if (recoveryMovies) {
       queueMicrotask(() =>
-        void runStoppedRecoveryAlert('movie', updatedMovie, booksRef.current, recoveryMovies!)
+        void runStoppedRecoveryAlert('movie', updatedMovie, booksRef.current, recoveryMovies!, features.canUseLLM)
       );
     }
 
@@ -953,7 +955,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
           dvd: 'DVD'
         };
 
-        let itemText = `${index + 1}. "${item.title || 'Unknown Title'}" by ${item.author || 'Unknown Author'} (${item.publicationYear || 'Unknown Year'})`;
+        const credit = isBook ? 'by' : 'directed by';
+        let itemText = `${index + 1}. "${item.title || 'Unknown Title'}" ${credit} ${item.author || 'Unknown Author'} (${item.publicationYear || 'Unknown Year'})`;
         
         if (item.format) {
           itemText += ` [${formatLabels[item.format as keyof typeof formatLabels] || item.format}]`;

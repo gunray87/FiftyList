@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Text, Alert, Share, Modal, TextInput, TouchableOpacity, Platform } from 'react-native';
+import { View, StyleSheet, FlatList, Text, Alert, Share, Modal, TextInput, TouchableOpacity, Platform, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Film, Clock, Target, X, Star } from 'lucide-react-native';
 import { useDataStore } from '@/hooks/useDataStore';
@@ -13,7 +13,6 @@ import AddEditModal from '@/components/AddEditModal';
 import ImportModal from '@/components/ImportModal';
 import SearchBar from '@/components/SearchBar';
 import YearFolderSelector from '../../components/YearFolderSelector';
-import ActivitySharingModal from '@/components/ActivitySharingModal';
 import ExportOptionsModal from '@/components/ExportOptionsModal';
 import { fieldMatchesQuery } from '@/utils/searchMatch';
 import { alertAfterShareError, shareExportViaMessages } from '@/utils/postShareFlow';
@@ -48,7 +47,6 @@ export default function MoviesScreen() {
   const [showSearch, setShowSearch] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [showExportOptionsModal, setShowExportOptionsModal] = useState(false);
-  const [showSharingModal, setShowSharingModal] = useState(false);
   const [panelView, setPanelView] = useState<'goal' | 'categories'>('categories');
   const currentYear = new Date().getFullYear();
 
@@ -574,7 +572,6 @@ export default function MoviesScreen() {
         onExportPress={handleExport}
         onImportPress={() => setShowImportModal(true)}
         onSearchPress={() => setShowSearch(!showSearch)}
-        onSharePress={() => setShowSharingModal(true)}
         primaryColor="#3B82F6"
         secondaryColor="#2563EB"
         isDark={true}
@@ -672,6 +669,7 @@ export default function MoviesScreen() {
             isDark={true}
             backgroundColor="#111827"
             maxLength={PREMIUM_LIST_SEARCH_MAX_CHARS}
+            onSubmitSearch={() => Keyboard.dismiss()}
           />
           {listSearchIntent?.explanationShort ? (
             <View style={styles.llmSearchStatusRow}>
@@ -697,6 +695,7 @@ export default function MoviesScreen() {
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         extraData={forceUpdate} // Force re-render when this changes
         removeClippedSubviews={Platform.OS !== 'web'}
         maxToRenderPerBatch={10}
@@ -718,14 +717,6 @@ export default function MoviesScreen() {
         visible={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImport}
-        isDark={true}
-      />
-
-      {/* Activity Sharing Modal */}
-      <ActivitySharingModal
-        visible={showSharingModal}
-        onClose={() => setShowSharingModal(false)}
-        primaryColor="#3B82F6"
         isDark={true}
       />
 

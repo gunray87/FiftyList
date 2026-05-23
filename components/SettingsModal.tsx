@@ -61,7 +61,39 @@ export default function SettingsModal({
   const { resetFirstLaunch } = useFirstLaunch();
   const { resetInterests } = useUserInterests();
   const { retakeOnboarding } = useOnboarding();
-  const { subscription, features, subscribeToTier, restorePurchases, isRevenueCatReady } = useSubscription();
+  const {
+    subscription,
+    features,
+    subscribeToTier,
+    restorePurchases,
+    isRevenueCatReady,
+    downgradeToEntry,
+    openManageSubscriptions,
+  } = useSubscription();
+
+  const confirmDowngradeToEntry = () => {
+    Alert.alert(
+      'Switch to Entry plan?',
+      'Premium-only features (LLM assist, price tracking) will turn off on this device. App Store billing is unchanged unless you manage it there.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Switch to Entry',
+          onPress: () => {
+            void (async () => {
+              try {
+                await downgradeToEntry();
+                Alert.alert('Plan updated', 'You are now on the Entry plan on this device.');
+              } catch (error) {
+                console.error('Failed to switch to Entry:', error);
+                Alert.alert('Could not switch plan', 'Please try again.');
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
 
   const handleContactPress = () => {
     const email = 'support@fiftylist.app';
@@ -301,6 +333,17 @@ export default function SettingsModal({
                 console.log('⚙️ Opening upgrade modal from Settings');
                 setShowUpgradeModal(true);
               }}
+              onManageSubscription={async () => {
+                const opened = await openManageSubscriptions();
+                if (!opened) {
+                  Alert.alert(
+                    'Manage subscription',
+                    'Open Settings → Apple ID → Subscriptions on this device.'
+                  );
+                }
+              }}
+              onDowngradeToEntry={subscription?.tier === 'premium' ? confirmDowngradeToEntry : undefined}
+              showManageSubscription={isRevenueCatReady}
               isDark={isDark}
             />
             <Text style={[styles.subscriptionDebugText, isDark && styles.darkTertiaryText]}>
@@ -380,8 +423,12 @@ export default function SettingsModal({
                 title="Share Activity"
                 subtitle="Share your reading and watching progress"
                 onPress={() => {
-                  onSharePress?.();
                   handleMainModalClose();
+                  const openShare = onSharePress;
+                  if (openShare) {
+                    const delayMs = Platform.OS === 'ios' ? 450 : 150;
+                    setTimeout(openShare, delayMs);
+                  }
                 }}
                 iconColor="#8B5CF6"
               />

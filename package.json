@@ -5,10 +5,12 @@
   "private": true,
   "scripts": {
     "dev": "EXPO_NO_TELEMETRY=1 expo start",
+    "ios": "EXPO_NO_TELEMETRY=1 expo run:ios",
     "build:web": "expo export --platform web",
     "lint": "expo lint",
     "sync:enriched-books": "node scripts/sync-enriched-books.mjs",
-    "eas:ios": "npx eas-cli build --platform ios --profile production --auto-submit"
+    "eas:ios": "npx eas-cli build --platform ios --profile production --auto-submit",
+    "android": "expo run:android"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
@@ -46,7 +48,8 @@
     "react-native-svg": "15.11.2",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "^0.20.0",
-    "react-native-webview": "13.13.5"
+    "react-native-webview": "13.13.5",
+    "expo-clipboard": "~7.1.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

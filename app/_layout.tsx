@@ -135,10 +135,8 @@ export default function RootLayout() {
     try {
       const logger = ActivityLogger.getInstance();
       await logger.initialize();
+      await logger.backfillFromStoredListsIfEmpty();
       console.log('📝 Activity logger initialized in app layout');
-      
-      // Temporary: Add sample activities for testing
-      await logger.addSampleActivities();
     } catch (error) {
       console.error('❌ Error initializing activity logger:', error);
     }

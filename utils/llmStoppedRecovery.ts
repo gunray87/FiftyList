@@ -32,9 +32,11 @@ export async function runStoppedRecoveryAlert(
   kind: 'book' | 'movie',
   stopped: Book | Movie,
   books: BookData,
-  movies: MovieData
+  movies: MovieData,
+  canUseLLM: boolean
 ): Promise<void> {
-  if (process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST !== 'true') return;
+  if (!canUseLLM) return;
+  if (process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST !== 'true' && !__DEV__) return;
 
   const snap = buildTasteProfileSnapshot(books, movies);
   const lengthBuckets = collectHighRatedLengthBuckets(books, movies);

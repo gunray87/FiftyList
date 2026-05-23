@@ -16,7 +16,8 @@ import {
 import { X, Share2, Calendar, Filter, Eye, Copy, Check, Bell } from 'lucide-react-native';
 import { SharingOptions, ActivityType, ItemType } from '@/types';
 import { ActivitySharing } from '@/utils/activitySharing';
-import { alertAfterShareError } from '@/utils/postShareFlow';
+import * as Clipboard from 'expo-clipboard';
+import { alertAfterShareError, runAfterShareSheetDismissed } from '@/utils/postShareFlow';
 import NotificationSettingsModal from './NotificationSettingsModal';
 
 interface ActivitySharingModalProps {
@@ -80,7 +81,7 @@ export default function ActivitySharingModal({
     if (visible) {
       generatePreview();
     }
-  }, [visible, sharingOptions]);
+  }, [visible, sharingOptions, customStartDate, customEndDate]);
 
   const generatePreview = async () => {
     setIsGenerating(true);
@@ -102,9 +103,25 @@ export default function ActivitySharingModal({
   };
 
   const handleShare = async () => {
+    const trimmed = previewText.trim();
+    if (!trimmed || trimmed.startsWith('Error generating preview')) {
+      Alert.alert('Nothing to share', 'Choose filters with activity in this range, or add items to your lists first.');
+      return;
+    }
+
     const shareContent = {
-      message: previewText,
+      message: trimmed,
       title: 'FiftyList — My Reading & Watching Activity',
+    };
+
+    const presentShare = async () => {
+      try {
+        const result = await Share.share(shareContent);
+        if (result.action === Share.dismissedAction) return;
+      } catch (err) {
+        console.error('Error sharing content:', err);
+        alertAfterShareError('Error', 'Failed to share content. Please try again.');
+      }
     };
 
     try {
@@ -112,30 +129,22 @@ export default function ActivitySharingModal({
         if (navigator.share) {
           await navigator.share(shareContent);
         } else {
-          await navigator.clipboard.writeText(previewText);
+          await navigator.clipboard.writeText(trimmed);
           Alert.alert('Copied!', 'Content copied to clipboard');
         }
         return;
       }
 
-      // iOS: do not present the share sheet from inside a pageSheet modal — it can leave a
-      // blank window when the sheet dismisses. Close first, then share after a short delay.
+      // iOS: do not present the share sheet from inside a pageSheet modal.
       if (Platform.OS === 'ios') {
         onClose();
-        setTimeout(() => {
-          (async () => {
-            try {
-              await Share.share(shareContent);
-            } catch (err) {
-              console.error('Error sharing content:', err);
-              alertAfterShareError('Error', 'Failed to share content. Please try again.');
-            }
-          })();
-        }, 400);
+        runAfterShareSheetDismissed(() => {
+          void presentShare();
+        });
         return;
       }
 
-      await Share.share(shareContent);
+      await presentShare();
     } catch (error) {
       console.error('Error sharing content:', error);
       alertAfterShareError('Error', 'Failed to share content. Please try again.');
@@ -143,13 +152,17 @@ export default function ActivitySharingModal({
   };
 
   const handleCopyToClipboard = async () => {
+    const trimmed = previewText.trim();
+    if (!trimmed || trimmed.startsWith('Error generating preview')) {
+      Alert.alert('Nothing to copy', 'Choose filters with activity in this range, or add items to your lists first.');
+      return;
+    }
+
     try {
       if (Platform.OS === 'web') {
-        await navigator.clipboard.writeText(previewText);
+        await navigator.clipboard.writeText(trimmed);
       } else {
-        // For React Native, you might need a clipboard library
-        // For now, we'll just show an alert
-        Alert.alert('Copied!', 'Content copied to clipboard');
+        await Clipboard.setStringAsync(trimmed);
       }
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
@@ -364,6 +377,9 @@ export default function ActivitySharingModal({
                 Preview
               </Text>
             </View>
+            <Text style={[styles.previewHint, isDark && styles.darkPreviewHint]}>
+              Built from your saved lists — titles and authors match what you have now. Removed items are not included.
+            </Text>
             
             <View style={[styles.previewContainer, isDark && styles.darkPreviewContainer]}>
               {isGenerating ? (
@@ -541,6 +557,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#4B5563',
     borderColor: '#6B7280',
     color: '#FFFFFF',
+  },
+  previewHint: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#6B7280',
+    marginBottom: 10,
+    lineHeight: 17,
+  },
+  darkPreviewHint: {
+    color: '#9CA3AF',
   },
   previewContainer: {
     height: 200,

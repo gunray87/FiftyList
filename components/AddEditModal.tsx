@@ -14,6 +14,8 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  Keyboard,
+  InteractionManager,
 } from 'react-native';
 import { X, Star, Search, Book, Film, ChevronRight } from 'lucide-react-native';
 import { FormData, Book as BookType, Movie } from '@/types';
@@ -23,6 +25,9 @@ import { searchMovies, MovieSearchResult } from '@/utils/movieSearch';
 import { searchBooks, searchBooksAPI, BookSearchResult } from '@/utils/bookSearch';
 import { DataQualityGate } from './DataQualityGate';
 import UpgradeModal from './UpgradeModal';
+import { llmPremiumPost } from '@/utils/llmProxyRequest';
+import { isLlmPremiumFeatureActive, isLlmProxyReady } from '@/utils/llmFeatureGate';
+import { friendlyLlmErrorMessage } from '@/utils/llmProviderErrors';
 
 interface AddEditModalProps {
   visible: boolean;
@@ -51,9 +56,25 @@ interface SearchResult {
   description?: string;
   thumbnail?: string | null;
   rating?: number;
+  source?: 'omdb' | 'tmdb' | 'hardcoded' | 'fallback' | 'google' | 'local';
 }
 
-const LLM_PROXY_BASE_URL = process.env.EXPO_PUBLIC_LLM_PROXY_BASE_URL;
+function searchResultsSourceLabel(isBook: boolean, results: SearchResult[]): string {
+  if (isBook) {
+    if (results.some((r) => r.id.startsWith('google-'))) {
+      return '🌐 Results from Google Books API';
+    }
+    return '📚 Results from local book catalog';
+  }
+  const hasOmdb = results.some((r) => r.id.startsWith('omdb-') || r.source === 'omdb');
+  const hasTmdb = results.some((r) => r.id.startsWith('tmdb-') || r.source === 'tmdb');
+  if (hasOmdb && hasTmdb) return '🌐 Results from OMDb & TMDB';
+  if (hasOmdb) return '🌐 Results from OMDb';
+  if (hasTmdb) return '🌐 Results from TMDB';
+  return '📚 Results from local movie catalog';
+}
+
+const LLM_PROXY_BASE_URL = process.env.EXPO_PUBLIC_LLM_PROXY_BASE_URL?.trim() || '';
 
 /** Parse YYYY-MM-DD without UTC shift (fixes off-by-one for some locales vs `Date` parsing). */
 function parseCompletedDateParts(iso: string): { year: number; month: number; day: number } | null {
@@ -66,10 +87,8 @@ function parseCompletedDateParts(iso: string): { year: number; month: number; da
   };
 }
 
-/** Row height matches paddingVertical (8×2) + ~18px body text → used to scroll wheels to selection */
 const DATE_PICKER_ROW_HEIGHT = 38;
 const DATE_PICKER_VIEWPORT_HEIGHT = 120;
-
 const YEARS_BEFORE = 55;
 const YEARS_AFTER = 2;
 
@@ -81,7 +100,6 @@ function clampDayToMonth(year: number, month: number, day: number) {
 function pad2(n: number) {
   return n.toString().padStart(2, '0');
 }
-const ENABLE_LLM_ASSIST = process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST === 'true';
 
 export default function AddEditModal({
   visible,
@@ -94,7 +112,7 @@ export default function AddEditModal({
   suggestionData,
 }: AddEditModalProps) {
   const { settings, isLoading: settingsLoading } = useAppSettings();
-  const { features, subscribeToTier } = useSubscription();
+  const { features, subscription, subscribeToTier } = useSubscription();
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -110,6 +128,7 @@ export default function AddEditModal({
   const monthScrollRef = useRef<ScrollView>(null);
   const dayScrollRef = useRef<ScrollView>(null);
   const yearScrollRef = useRef<ScrollView>(null);
+  const searchInputRef = useRef<TextInput>(null);
 
   // Get current date for default values
   const currentDate = new Date();
@@ -321,9 +340,9 @@ export default function AddEditModal({
       console.log(`📚 Local book search requested for: "${query}"`);
       
       const results = await searchBooks(query);
-      
+
       console.log(`✅ Found ${results.length} local book results for "${query}"`);
-      return results;
+      return results.map((r) => ({ ...r, source: 'local' as const }));
     } catch (error) {
       console.error('Error searching local books:', error);
       return [];
@@ -336,9 +355,9 @@ export default function AddEditModal({
       console.log(`📚 API book search requested for: "${query}"`);
       
       const results = await searchBooksAPI(query);
-      
+
       console.log(`✅ Found ${results.length} API book results for "${query}"`);
-      return results;
+      return results.map((r) => ({ ...r, source: 'google' as const }));
     } catch (error) {
       console.error('Error searching API books:', error);
       return [];
@@ -357,6 +376,7 @@ export default function AddEditModal({
         description: result.description,
         thumbnail: result.thumbnail,
         rating: result.rating,
+        source: result.source,
       }));
     } catch (error) {
       console.error('Error searching movies:', error);
@@ -364,20 +384,36 @@ export default function AddEditModal({
     }
   };
 
-  const llmAssistEnabled =
-    features.canUseLLM && ENABLE_LLM_ASSIST && Boolean(LLM_PROXY_BASE_URL);
+  const llmAssistConfigured = isLlmProxyReady(LLM_PROXY_BASE_URL);
+  const llmAssistEnabled = isLlmPremiumFeatureActive(features, LLM_PROXY_BASE_URL);
+
+  const dismissSearchKeyboard = useCallback(() => {
+    searchInputRef.current?.blur();
+    Keyboard.dismiss();
+    if (Platform.OS === 'ios') {
+      InteractionManager.runAfterInteractions(() => {
+        Keyboard.dismiss();
+      });
+    }
+  }, []);
 
   const handleLLMItemDraft = async () => {
     if (!llmAssistEnabled || !LLM_PROXY_BASE_URL) {
-      Alert.alert('AI Assist Unavailable', 'AI drafting is unavailable in this build.');
+      Alert.alert(
+        'Premium feature',
+        features.canUseLLM
+          ? 'AI drafting is unavailable in this build.'
+          : 'AI item drafting is included with Premium. Upgrade in Settings to enable it.'
+      );
       return;
     }
 
-    const hasInput =
-      formData.title.trim() ||
-      formData.author.trim() ||
-      formData.description.trim() ||
-      formData.notes.trim();
+    const draftTitle = formData.title.trim() || (showSearch ? searchQuery.trim() : '');
+    const draftAuthor = formData.author.trim();
+    const draftDescription = formData.description.trim();
+    const draftNotes = formData.notes.trim();
+
+    const hasInput = draftTitle || draftAuthor || draftDescription || draftNotes;
     if (!hasInput) {
       Alert.alert(
         'Add Some Context',
@@ -390,46 +426,72 @@ export default function AddEditModal({
     setLlmStatusMessage(null);
 
     try {
-      const response = await fetch(`${LLM_PROXY_BASE_URL}/llm/item-draft`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Subscription-Tier': 'premium',
-          'X-App-Feature': 'item_draft',
-        },
-        body: JSON.stringify({
+      const result = await llmPremiumPost<{
+        draft?: {
+          title?: string;
+          author?: string;
+          publicationYear?: number;
+          notes?: string;
+          description?: string;
+        };
+        remaining_actions?: number;
+        message?: string;
+      }>(
+        '/llm/item-draft',
+        'item_draft',
+        {
           mediaType: isBook ? 'book' : 'movie',
-          title: formData.title,
-          author: formData.author,
-          description: formData.description,
-          notes: formData.notes,
-        }),
-      });
+          title: draftTitle,
+          author: draftAuthor,
+          description: draftDescription,
+          notes: draftNotes,
+        },
+        15000
+      );
 
-      if (!response.ok) {
-        let details = '';
-        try {
-          const errPayload = await response.json();
-          details = typeof errPayload?.message === 'string' ? `: ${errPayload.message}` : '';
-        } catch {
-          // Ignore payload parsing errors; status code still useful.
-        }
-        throw new Error(`AI draft failed (${response.status})${details}`);
+      if (!result.ok) {
+        const serverMsg = result.message?.trim();
+        const fallback =
+          result.status === 403
+            ? 'Premium AI requires an active subscription.'
+            : result.status === 0
+              ? 'AI assist is not configured for this build, or the request timed out.'
+              : `AI draft failed (${result.status})`;
+        throw new Error(serverMsg && serverMsg.length > 0 ? serverMsg : fallback);
       }
 
-      const payload = await response.json();
+      const payload = result.data;
       const draft = payload?.draft ?? {};
 
-      setFormData((prev) => ({
-        ...prev,
-        title: typeof draft.title === 'string' && draft.title.trim() ? draft.title : prev.title,
-        author: typeof draft.author === 'string' && draft.author.trim() ? draft.author : prev.author,
-        publicationYear:
-          typeof draft.publicationYear === 'number' && draft.publicationYear > 0
-            ? draft.publicationYear
-            : prev.publicationYear,
-        notes: typeof draft.notes === 'string' && draft.notes.trim() ? draft.notes : prev.notes,
-      }));
+      setFormData((prev) => {
+        const nextNotes =
+          typeof draft.notes === 'string' && draft.notes.trim()
+            ? draft.notes.trim()
+            : prev.notes;
+        const nextDescription =
+          typeof draft.description === 'string' && draft.description.trim()
+            ? draft.description.trim()
+            : !prev.description.trim() && nextNotes
+              ? nextNotes
+              : prev.description;
+        return {
+          ...prev,
+          title:
+            typeof draft.title === 'string' && draft.title.trim() ? draft.title.trim() : prev.title || draftTitle,
+          author:
+            typeof draft.author === 'string' && draft.author.trim() ? draft.author.trim() : prev.author,
+          publicationYear:
+            typeof draft.publicationYear === 'number' && draft.publicationYear > 0
+              ? draft.publicationYear
+              : prev.publicationYear,
+          notes: nextNotes,
+          description: nextDescription,
+        };
+      });
+
+      if (showSearch) {
+        setShowSearch(false);
+      }
 
       if (typeof payload?.remaining_actions === 'number') {
         setLlmStatusMessage(`AI actions remaining this period: ${payload.remaining_actions}`);
@@ -437,45 +499,44 @@ export default function AddEditModal({
         setLlmStatusMessage('AI draft applied.');
       }
     } catch (error) {
-      Alert.alert('AI Draft Failed', error instanceof Error ? error.message : 'Try again later.');
+      const raw = error instanceof Error ? error.message : 'Try again later.';
+      Alert.alert('AI Draft Failed', friendlyLlmErrorMessage(raw));
     } finally {
       setIsLLMDraftLoading(false);
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-
+  const performSearch = async (query: string) => {
     setIsSearching(true);
     setSearchError(null);
     setShowAPISearchButton(false);
 
     try {
       if (isBook) {
-        // For books, search local database first
-        const localResults = await searchBooksLocal(searchQuery.trim());
+        const localResults = await searchBooksLocal(query);
         setSearchResults(localResults);
-        
+
         if (localResults.length === 0) {
-          // Show API search button if no local results found
           setShowAPISearchButton(true);
-          setSearchError(`No books found in local database for "${searchQuery}". Try searching online.`);
+          setSearchError(`No books found in local database for "${query}". Try searching online.`);
         } else {
           setSearchError(null);
         }
+      } else if (!features.canSearchMovies) {
+        setSearchError('Movie search requires Premium subscription. Upgrade to search movies with rich data.');
+        setSearchResults([]);
       } else {
-        // For movies, check subscription first
-        if (!features.canSearchMovies) {
-          setSearchError('Movie search requires Premium subscription. Upgrade to search movies with rich data.');
-          setSearchResults([]);
+        const results = await searchMoviesFunction(query);
+        setSearchResults(results);
+
+        if (results.length === 0) {
+          setSearchError(`No movies found for "${query}"`);
+        } else if (!results.some((r) => r.id.startsWith('omdb-') || r.id.startsWith('tmdb-'))) {
+          setSearchError(
+            'Showing local catalog only. Set EXPO_PUBLIC_OMDB_API_KEY in .env and restart Metro for OMDb results.'
+          );
         } else {
-          // For movies, use existing movie search
-          const results = await searchMoviesFunction(searchQuery.trim());
-          setSearchResults(results);
-          
-          if (results.length === 0) {
-            setSearchError(`No movies found for "${searchQuery}"`);
-          }
+          setSearchError(null);
         }
       }
     } catch (error) {
@@ -485,10 +546,14 @@ export default function AddEditModal({
     }
   };
 
-  const handleAPISearch = async () => {
-    if (!searchQuery.trim()) return;
+  const submitSearch = useCallback(() => {
+    dismissSearchKeyboard();
+    const query = searchQuery.trim();
+    if (!query) return;
+    void performSearch(query);
+  }, [dismissSearchKeyboard, searchQuery, isBook, features.canSearchMovies]);
 
-    // Check if user has API search permission (Premium only)
+  const performAPISearch = async (query: string) => {
     if (!features.canSearchBooks) {
       setSearchError('Online book search requires Premium subscription. Upgrade to access Google Books API.');
       return;
@@ -498,13 +563,13 @@ export default function AddEditModal({
     setSearchError(null);
 
     try {
-      const apiResults = await searchBooksAPIOnly(searchQuery.trim());
+      const apiResults = await searchBooksAPIOnly(query);
 
       if (apiResults.length > 0) {
         setSearchResults(apiResults);
         setSearchError(null);
       } else {
-        setSearchError(`No books found online for "${searchQuery}"`);
+        setSearchError(`No books found online for "${query}"`);
       }
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : 'API search failed');
@@ -513,7 +578,15 @@ export default function AddEditModal({
     }
   };
 
+  const submitAPISearch = useCallback(() => {
+    dismissSearchKeyboard();
+    const query = searchQuery.trim();
+    if (!query) return;
+    void performAPISearch(query);
+  }, [dismissSearchKeyboard, searchQuery, features.canSearchBooks]);
+
   const handleSelectSearchResult = (result: SearchResult) => {
+    dismissSearchKeyboard();
     const updatedFormData = {
       ...formData,
       title: result.title,
@@ -643,16 +716,13 @@ export default function AddEditModal({
     </View>
   );
 
-  const renderSearchResults = () => (
-    <ScrollView style={styles.searchResults} showsVerticalScrollIndicator={false}>
-      {/* Results Source Indicator */}
+  const renderSearchResultList = () => (
+    <>
       <View style={styles.resultsSourceBanner}>
         <Text style={[styles.resultsSourceText, isDark && styles.darkSecondaryText]}>
-          {features.canSearchBooks
-            ? '🌐 Results from Google Books API'
-            : '📚 Results from Local Database (1,000+ books)'}
+          {searchResultsSourceLabel(isBook, searchResults)}
         </Text>
-        {!features.canSearchBooks && (
+        {isBook && !features.canSearchBooks && (
           <TouchableOpacity
             onPress={() => {
               console.log('🔒 Upgrade link clicked in results banner');
@@ -708,7 +778,7 @@ export default function AddEditModal({
           </View>
         </TouchableOpacity>
       ))}
-    </ScrollView>
+    </>
   );
 
   const renderSearchView = () => (
@@ -731,25 +801,27 @@ export default function AddEditModal({
         <View style={[styles.searchInputWrapper, isDark && styles.darkSearchInputWrapper]}>
           <Search size={20} color={isDark ? "#6B7280" : "#9CA3AF"} />
           <TextInput
+            ref={searchInputRef}
             style={[styles.searchInput, isDark && styles.darkSearchInput]}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder={`Search for ${isBook ? 'books' : 'movies'}...`}
             placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-            onSubmitEditing={handleSearch}
+            onSubmitEditing={submitSearch}
             returnKeyType="search"
             accessibilityLabel="Search input"
             accessibilityHint={`Type to search for ${isBook ? 'books' : 'movies'}`}
-            // Add stability props to prevent recycling crashes
             textAlignVertical="center"
-            blurOnSubmit={false}
+            blurOnSubmit
+            submitBehavior="submit"
             selectTextOnFocus={false}
             autoComplete="off"
           />
         </View>
         <TouchableOpacity
           style={[styles.searchButton, { backgroundColor: primaryColor }]}
-          onPress={handleSearch}
+          onPressIn={dismissSearchKeyboard}
+          onPress={submitSearch}
           disabled={!searchQuery.trim() || isSearching}
           accessibilityRole="button"
           accessibilityLabel="Search"
@@ -762,6 +834,14 @@ export default function AddEditModal({
           )}
         </TouchableOpacity>
       </View>
+
+      <ScrollView
+        style={styles.searchResultsScroll}
+        contentContainerStyle={styles.searchResultsScrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
       {llmStatusMessage && (
         <Text style={[styles.llmStatusText, isDark && styles.darkSecondaryText]}>{llmStatusMessage}</Text>
       )}
@@ -774,7 +854,8 @@ export default function AddEditModal({
           {showAPISearchButton && isBook && features.canSearchBooks && (
             <TouchableOpacity
               style={[styles.apiSearchButton, { backgroundColor: primaryColor }]}
-              onPress={handleAPISearch}
+              onPressIn={dismissSearchKeyboard}
+              onPress={submitAPISearch}
               disabled={isAPISearching}
               accessibilityRole="button"
               accessibilityLabel="Search online for books"
@@ -812,7 +893,9 @@ export default function AddEditModal({
         </View>
       )}
 
-      {searchResults.length > 0 && renderSearchResults()}
+      {searchResults.length > 0 && (
+        <View style={styles.searchResults}>{renderSearchResultList()}</View>
+      )}
 
       {!isSearching && searchResults.length === 0 && !searchError && searchQuery.trim() === '' && (
         <View style={styles.searchEmptyState}>
@@ -839,6 +922,7 @@ export default function AddEditModal({
           )}
         </View>
       )}
+      </ScrollView>
     </View>
   );
 
@@ -870,7 +954,7 @@ export default function AddEditModal({
               <Text style={[styles.dividerText, isDark && styles.darkSecondaryText]}>or enter manually</Text>
               <View style={[styles.dividerLine, isDark && styles.darkDividerLine]} />
             </View>
-            {llmAssistEnabled && (
+            {llmAssistEnabled ? (
               <TouchableOpacity
                 style={[styles.llmDraftButton, { borderColor: primaryColor }]}
                 onPress={handleLLMItemDraft}
@@ -887,7 +971,17 @@ export default function AddEditModal({
                   </Text>
                 )}
               </TouchableOpacity>
-            )}
+            ) : llmAssistConfigured ? (
+              <View
+                style={[styles.llmDraftButton, styles.llmDraftButtonLocked, { borderColor: '#D1D5DB' }]}
+                accessibilityRole="text"
+                accessibilityLabel="AI draft item details, premium only"
+              >
+                <Text style={[styles.llmButtonText, styles.llmButtonTextLocked]}>
+                  🔒 AI Draft Item Details (Premium)
+                </Text>
+              </View>
+            ) : null}
           </>
         )}
 
@@ -1618,9 +1712,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 12,
   },
+  llmDraftButtonLocked: {
+    backgroundColor: '#F9FAFB',
+    opacity: 0.9,
+  },
   llmButtonText: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
+  },
+  llmButtonTextLocked: {
+    color: '#9CA3AF',
+    fontFamily: 'Inter-Medium',
   },
   llmStatusText: {
     fontSize: 12,
@@ -1661,8 +1763,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
   },
-  searchResults: {
+  searchResultsScroll: {
     flex: 1,
+  },
+  searchResultsScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
+  },
+  searchResults: {
     paddingHorizontal: 20,
   },
   resultsSourceBanner: {

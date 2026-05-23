@@ -38,25 +38,8 @@ export interface SubscriptionFeatures {
   canSearchBooks: boolean;
 }
 
-export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
-  {
-    id: 'free',
-    name: 'No Subscription',
-    price: {},
-    features: {
-      unlimitedItems: false,
-      enhancedSearch: false,
-      movieSearch: false,
-      priceTracking: false,
-      advancedRecommendations: false,
-      prioritySupport: false,
-    },
-    apiProviders: [], // No API access for free tier
-    limits: {
-      apiCallsPerDay: 0, // No API calls allowed
-      searchProviders: []
-    }
-  },
+/** Paid plans only — shown in upgrade UI and settings. */
+export const PAID_SUBSCRIPTION_TIERS: SubscriptionTier[] = [
   {
     id: 'entry',
     name: 'Entry Utility',
@@ -95,8 +78,35 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
   }
 ];
 
+/** Internal unsubscribed state (not a selectable plan). */
+const FREE_TIER_CONFIG: SubscriptionTier = {
+  id: 'free',
+  name: 'No Subscription',
+  price: {},
+  features: {
+    unlimitedItems: false,
+    enhancedSearch: false,
+    movieSearch: false,
+    priceTracking: false,
+    advancedRecommendations: false,
+    prioritySupport: false,
+  },
+  apiProviders: [],
+  limits: {
+    apiCallsPerDay: 0,
+    searchProviders: [],
+  },
+};
+
+export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [FREE_TIER_CONFIG, ...PAID_SUBSCRIPTION_TIERS];
+
+export function isPaidSubscriptionTier(tier: string | undefined): tier is 'entry' | 'premium' {
+  return tier === 'entry' || tier === 'premium';
+}
+
 export const getSubscriptionTier = (tierId: string): SubscriptionTier | undefined => {
-  return SUBSCRIPTION_TIERS.find(tier => tier.id === tierId);
+  if (tierId === 'free') return FREE_TIER_CONFIG;
+  return PAID_SUBSCRIPTION_TIERS.find((tier) => tier.id === tierId);
 };
 
 export const getSubscriptionFeatures = (subscription: UserSubscription | null): SubscriptionFeatures => {

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, TouchableOpacity, Image, Platform } from 'react-native';
 import { Plus, Settings, Search } from 'lucide-react-native';
 import SettingsModal from './SettingsModal';
+import ActivitySharingModal from './ActivitySharingModal';
 
 interface HeaderProps {
   title: string;
@@ -9,7 +10,6 @@ interface HeaderProps {
   onExportPress: () => void;
   onImportPress?: () => void;
   onSearchPress?: () => void;
-  onSharePress?: () => void;
   primaryColor: string;
   secondaryColor: string;
   isDark?: boolean;
@@ -17,15 +17,20 @@ interface HeaderProps {
   isExporting?: boolean;
 }
 
-export default function Header({ onAddPress, onExportPress, onImportPress, onSearchPress, onSharePress, primaryColor, secondaryColor, isDark = false, backgroundColor, isExporting = false }: HeaderProps) {
-  const [showSettings, setShowSettings] = useState(false);
+const HEADER_LOGO = require('../assets/images/logo-header.png');
+const HEADER_LOGO_FALLBACK = require('../assets/images/icon.png');
 
-  // Use the provided background color directly
+export default function Header({ onAddPress, onExportPress, onImportPress, onSearchPress, primaryColor, secondaryColor, isDark = false, backgroundColor, isExporting = false }: HeaderProps) {
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSharingModal, setShowSharingModal] = useState(false);
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
+  const onLogoError = useCallback(() => setLogoLoadFailed(true), []);
+
   const headerBackground = backgroundColor || (isDark ? '#111827' : '#D6B588');
 
   return (
     <>
-      <View 
+      <View
         style={[styles.container, { backgroundColor: headerBackground }]}
         accessibilityRole="banner"
       >
@@ -33,26 +38,20 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
           <View style={styles.logoContainer}>
             <View style={styles.logoWrapper}>
               <Image
-                source={require('../assets/images/Logo Image_1.png')}
-                style={[
-                  styles.logo,
-                  isDark && styles.whiteLogo
-                ]}
+                source={logoLoadFailed ? HEADER_LOGO_FALLBACK : HEADER_LOGO}
+                style={[styles.logo, (isDark || logoLoadFailed) && styles.whiteLogo]}
                 resizeMode="contain"
+                onError={onLogoError}
                 accessibilityLabel="FiftyList app logo"
                 accessibilityRole="image"
               />
             </View>
           </View>
-          
-          <View 
-            style={styles.actions}
-            accessibilityRole="toolbar"
-            accessibilityLabel="Header actions"
-          >
+
+          <View style={styles.actions} accessibilityRole="toolbar" accessibilityLabel="Header actions">
             {onSearchPress && (
-              <TouchableOpacity 
-                style={styles.actionButton} 
+              <TouchableOpacity
+                style={styles.actionButton}
                 onPress={onSearchPress}
                 accessibilityRole="button"
                 accessibilityLabel="Search"
@@ -61,8 +60,8 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
                 <Search size={18} color="#475569" strokeWidth={2.25} />
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
-              style={styles.actionButton} 
+            <TouchableOpacity
+              style={styles.actionButton}
               onPress={() => setShowSettings(true)}
               accessibilityRole="button"
               accessibilityLabel="Settings"
@@ -70,8 +69,8 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
             >
               <Settings size={18} color="#475569" strokeWidth={2.25} />
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.actionButton} 
+            <TouchableOpacity
+              style={styles.actionButton}
               onPress={onAddPress}
               accessibilityRole="button"
               accessibilityLabel="Add new item"
@@ -88,9 +87,16 @@ export default function Header({ onAddPress, onExportPress, onImportPress, onSea
         onClose={() => setShowSettings(false)}
         onExportPress={onExportPress}
         onImportPress={onImportPress || (() => {})}
-        onSharePress={onSharePress}
+        onSharePress={() => setShowSharingModal(true)}
         isDark={isDark}
         isExporting={isExporting}
+      />
+
+      <ActivitySharingModal
+        visible={showSharingModal}
+        onClose={() => setShowSharingModal(false)}
+        primaryColor={primaryColor}
+        isDark={isDark}
       />
     </>
   );
@@ -100,18 +106,18 @@ const styles = StyleSheet.create({
   container: {
     paddingTop: 10,
     paddingBottom: 12,
-    paddingHorizontal: 0, // Removed all horizontal padding
+    paddingHorizontal: 0,
   },
   content: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingRight: 12, // Only add padding to the right for action buttons
+    paddingRight: 12,
   },
   logoContainer: {
     flex: 1,
     alignItems: 'flex-start',
-    marginLeft: -12, // Increased negative margin
+    marginLeft: -12,
   },
   logoWrapper: {
     width: 240,
@@ -125,7 +131,7 @@ const styles = StyleSheet.create({
   logo: {
     width: 200,
     height: 50,
-    marginLeft: -8, // Increased negative margin for logo
+    marginLeft: -8,
   },
   whiteLogo: {
     tintColor: '#FFFFFF',

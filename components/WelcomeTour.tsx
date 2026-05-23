@@ -6,22 +6,21 @@ import {
   Modal,
   TouchableOpacity,
   Animated,
-  Dimensions,
   Platform,
 } from 'react-native';
-import { 
-  BookOpen, 
-  Film, 
-  Target, 
-  Plus, 
-  TrendingUp, 
-  Star,
-  ArrowRight,
-  X,
-  Settings,
-  Search,
-  Sparkles
-} from 'lucide-react-native';
+import { Star, Film, Target, X, Sparkles, Check } from 'lucide-react-native';
+
+/** Matches Books screen primary amber (`#D97706`) for continuity with the rest of the app. */
+const AMBER_PRIMARY = '#D97706';
+const AMBER_ICON_RING = 'rgba(217, 119, 6, 0.15)';
+const SAND_BACKDROP = '#E8D9C0';
+const DOT_ACTIVE = AMBER_PRIMARY;
+const DOT_INACTIVE = '#C8B89A';
+const PREVIOUS_BG = '#EDE8D0';
+const PREVIOUS_BORDER = '#C8B89A';
+const PREVIOUS_LABEL = '#44403C';
+const SKIP_BORDER = '#D6C7A8';
+const SKIP_ICON = '#78716C';
 
 interface WelcomeTourProps {
   visible: boolean;
@@ -32,77 +31,49 @@ interface TourStep {
   id: string;
   title: string;
   description: string;
-  icon: React.ComponentType<any>;
-  color: string;
-  position?: 'top' | 'center' | 'bottom';
+  icon: React.ComponentType<{ size?: number; color?: string }>;
 }
 
 const tourSteps: TourStep[] = [
   {
     id: 'welcome',
-    title: 'Welcome to FiftyList!',
-    description: 'Your personal companion for tracking books and movies. Set goals, organize your lists, and discover your reading and watching patterns.',
+    title: 'Welcome to FiftyList',
+    description:
+      'Your companion for books and movies—set goals, keep lists in order, and see how your year is shaping up.',
     icon: Star,
-    color: '#D97706',
-    position: 'center'
+  },
+  {
+    id: 'track',
+    title: 'Track books and movies',
+    description:
+      'Tap + to add titles, then sort them into completed, in progress, planned, or stopped. Switch tabs to browse each part of your library.',
+    icon: Film,
   },
   {
     id: 'goals',
-    title: 'Set Your Goals',
-    description: 'Start by setting yearly goals for books and movies. Track your progress throughout the year with beautiful visualizations.',
+    title: 'Set yearly goals',
+    description:
+      'Choose targets for books and movies for the year. Watch progress on your lists and dig into year-by-year stats when you want more detail.',
     icon: Target,
-    color: '#10B981',
-    position: 'top'
-  },
-  {
-    id: 'add-items',
-    title: 'Add Your First Items',
-    description: 'Tap the + button to add books and movies. Organize them into categories: completed, reading/watching, planned, or stopped.',
-    icon: Plus,
-    color: '#3B82F6',
-    position: 'top'
-  },
-  {
-    id: 'categories',
-    title: 'Organize Everything',
-    description: 'Switch between categories to see your completed items, current reads, wishlist, and all-time favorites.',
-    icon: BookOpen,
-    color: '#F59E0B',
-    position: 'center'
-  },
-  {
-    id: 'search',
-    title: 'Find Anything Fast',
-    description: 'Use the search bar to quickly find any book or movie in your collection by title, author, or notes.',
-    icon: Search,
-    color: '#EF4444',
-    position: 'top'
   },
   {
     id: 'suggestions',
-    title: 'Discover New Content',
-    description: 'Get personalized suggestions based on your reading and watching history. Find your next favorite book or movie!',
+    title: 'Get AI-powered suggestions',
+    description:
+      'Open Suggestions for picks tuned to your lists—with separate refine lines for books and movies and an optional taste snapshot when you use premium AI.',
     icon: Sparkles,
-    color: '#8B5CF6',
-    position: 'bottom'
   },
   {
-    id: 'stats',
-    title: 'Track Your Progress',
-    description: 'View detailed statistics, yearly breakdowns, and insights about your reading and watching habits.',
-    icon: TrendingUp,
-    color: '#06B6D4',
-    position: 'bottom'
+    id: 'ready',
+    title: "You're ready — let's go",
+    description:
+      'Use Stats for charts and insights, and Settings to export, import, or adjust defaults. Your library data stays on your device.',
+    icon: Check,
   },
-  {
-    id: 'settings',
-    title: 'Export & Import',
-    description: 'Access settings to export your data for backup or import from other sources. Your data stays private on your device.',
-    icon: Settings,
-    color: '#78716C',
-    position: 'top'
-  }
 ];
+
+const DOT_SIZE = 7;
+const DOT_GAP = 6;
 
 export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -110,11 +81,9 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
-  const screenHeight = Dimensions.get('window').height;
-  const screenWidth = Dimensions.get('window').width;
-
   useEffect(() => {
     if (visible) {
+      setCurrentStep(0);
       setIsVisible(true);
       startAnimation();
     }
@@ -132,7 +101,7 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
         tension: 50,
         friction: 7,
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   };
 
@@ -176,7 +145,7 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
         toValue: 0.9,
         duration: 300,
         useNativeDriver: true,
-      })
+      }),
     ]).start(() => {
       setIsVisible(false);
       onComplete();
@@ -189,7 +158,7 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
 
   const step = tourSteps[currentStep];
   const IconComponent = step.icon;
-  const progress = ((currentStep + 1) / tourSteps.length) * 100;
+  const isLast = currentStep === tourSteps.length - 1;
 
   if (!isVisible) return null;
 
@@ -202,125 +171,80 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
       onRequestClose={handleComplete}
     >
       <View style={styles.overlay}>
-        {/* Background with warm gradient */}
-        <View style={styles.backgroundGradient} />
-        
-        {/* Skip button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.skipButton}
           onPress={handleSkip}
           accessibilityRole="button"
           accessibilityLabel="Skip tour"
         >
-          <X size={20} color="#78716C" />
+          <X size={20} color={SKIP_ICON} />
         </TouchableOpacity>
 
-        {/* Main content */}
-        <Animated.View 
+        <Animated.View
           style={[
             styles.container,
             {
               opacity: fadeAnim,
-              transform: [
-                { scale: scaleAnim }
-              ]
-            }
+              transform: [{ scale: scaleAnim }],
+            },
           ]}
         >
-          {/* Card container */}
           <View style={styles.card}>
-            {/* Icon */}
-            <View style={[styles.iconContainer, { backgroundColor: `${step.color}15` }]}>
-              <View style={[styles.iconInner, { backgroundColor: step.color }]}>
+            <View style={[styles.iconContainer, { backgroundColor: AMBER_ICON_RING }]}>
+              <View style={[styles.iconInner, { backgroundColor: AMBER_PRIMARY }]}>
                 <IconComponent size={28} color="#FFFFFF" />
               </View>
             </View>
 
-            {/* Content */}
             <View style={styles.content}>
               <Text style={styles.title}>{step.title}</Text>
               <Text style={styles.description}>{step.description}</Text>
             </View>
 
-            {/* Progress indicator */}
-            <View style={styles.progressContainer}>
-              <View style={styles.progressTrack}>
-                <Animated.View 
+            <View style={styles.dotRow} accessibilityRole="progressbar">
+              {tourSteps.map((_, index) => (
+                <View
+                  key={index}
                   style={[
-                    styles.progressFill,
-                    { 
-                      width: `${progress}%`,
-                      backgroundColor: '#8B5CF6'
-                    }
-                  ]} 
+                    styles.stepDot,
+                    {
+                      backgroundColor: index === currentStep ? DOT_ACTIVE : DOT_INACTIVE,
+                      marginHorizontal: DOT_GAP / 2,
+                    },
+                  ]}
                 />
-              </View>
-              <Text style={styles.progressText}>
-                {currentStep + 1} of {tourSteps.length}
-              </Text>
+              ))}
             </View>
 
-            {/* Fixed Navigation Area - Consistent positioning */}
             <View style={styles.fixedNavigationArea}>
-              {/* Navigation buttons container with consistent layout */}
               <View style={styles.navigationContainer}>
-                {/* Previous button - consistent positioning */}
-                <TouchableOpacity 
-                  style={[
-                    styles.navButton, 
-                    styles.previousButton,
-                    { opacity: currentStep === 0 ? 0 : 1 }
-                  ]}
-                  onPress={handlePrevious}
-                  disabled={currentStep === 0}
-                  pointerEvents={currentStep === 0 ? 'none' : 'auto'}
-                  accessibilityRole="button"
-                  accessibilityLabel="Previous step"
-                >
-                  <Text style={styles.previousButtonText}>
-                    Previous
-                  </Text>
-                </TouchableOpacity>
-                
-                {/* Next button - always in the same position */}
-                <TouchableOpacity 
+                {currentStep > 0 ? (
+                  <TouchableOpacity
+                    style={[styles.navButton, styles.previousButton]}
+                    onPress={handlePrevious}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous step"
+                  >
+                    <Text style={styles.previousButtonText}>Previous</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.navSpacer} />
+                )}
+
+                <TouchableOpacity
                   style={[styles.navButton, styles.nextButton]}
                   onPress={handleNext}
                   accessibilityRole="button"
-                  accessibilityLabel={currentStep === tourSteps.length - 1 ? "Get started" : "Next step"}
+                  accessibilityLabel={isLast ? 'Get started' : 'Next step'}
                 >
                   <Text style={styles.nextButtonText}>
-                    {currentStep === tourSteps.length - 1 ? 'Get Started' : 'Next'}
+                    {isLast ? 'Get started →' : 'Next →'}
                   </Text>
-                  <ArrowRight size={16} color="#FFFFFF" />
                 </TouchableOpacity>
-              </View>
-
-              {/* Step indicators - centered and consistent */}
-              <View style={styles.stepIndicators}>
-                {tourSteps.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.stepDot,
-                      {
-                        backgroundColor: index === currentStep 
-                          ? '#8B5CF6' 
-                          : '#D6C7A8',
-                        transform: [{ scale: index === currentStep ? 1.2 : 1 }]
-                      }
-                    ]}
-                  />
-                ))}
               </View>
             </View>
           </View>
         </Animated.View>
-
-        {/* Decorative elements with warm colors */}
-        <View style={[styles.decorativeCircle, styles.circle1]} />
-        <View style={[styles.decorativeCircle, styles.circle2]} />
-        <View style={[styles.decorativeCircle, styles.circle3]} />
       </View>
     </Modal>
   );
@@ -329,17 +253,8 @@ export default function WelcomeTour({ visible, onComplete }: WelcomeTourProps) {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: '#1A1611',
+    backgroundColor: SAND_BACKDROP,
     position: 'relative',
-  },
-  backgroundGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#1A1611',
-    opacity: 0.98,
   },
   skipButton: {
     position: 'absolute',
@@ -349,17 +264,11 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F5F1E8',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: SKIP_BORDER,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   container: {
     flex: 1,
@@ -374,13 +283,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 360,
     width: '100%',
-    minHeight: 500,
+    minHeight: 460,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 8,
     },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.12,
     shadowRadius: 20,
     elevation: 8,
     borderWidth: 1,
@@ -398,7 +307,7 @@ const styles = StyleSheet.create({
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 4,
   },
@@ -411,7 +320,7 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
     minHeight: 140,
     justifyContent: 'center',
   },
@@ -431,120 +340,68 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     maxWidth: 280,
   },
-  progressContainer: {
+  dotRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 28,
+    justifyContent: 'center',
+    marginBottom: 24,
     width: '100%',
   },
-  progressTrack: {
-    width: '100%',
-    height: 6,
-    backgroundColor: '#E8DCC0',
-    borderRadius: 3,
-    marginBottom: 8,
-    overflow: 'hidden',
+  stepDot: {
+    width: DOT_SIZE,
+    height: DOT_SIZE,
+    borderRadius: DOT_SIZE / 2,
   },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  progressText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#A8A29E',
-  },
-  // Fixed navigation area with consistent positioning
   fixedNavigationArea: {
     width: '100%',
-    height: 80, // Fixed height to prevent layout shifts
-    justifyContent: 'space-between',
+    marginTop: 'auto',
   },
   navigationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    height: 44, // Fixed height for button area
+    height: 44,
+  },
+  navSpacer: {
+    minWidth: 100,
+    height: 44,
   },
   navButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 20,
+    borderRadius: 12,
     gap: 6,
-    height: 44, // Fixed height for consistent button size
-    minWidth: 100, // Consistent minimum width for both buttons
-    justifyContent: 'center', // Center content within buttons
+    height: 44,
+    minWidth: 100,
+    justifyContent: 'center',
   },
   previousButton: {
-    backgroundColor: '#E8DCC0',
+    backgroundColor: PREVIOUS_BG,
     borderWidth: 1,
-    borderColor: '#D6C7A8',
+    borderColor: PREVIOUS_BORDER,
   },
   nextButton: {
-    backgroundColor: '#8B5CF6',
-    shadowColor: '#8B5CF6',
+    backgroundColor: AMBER_PRIMARY,
+    shadowColor: AMBER_PRIMARY,
     shadowOffset: {
       width: 0,
       height: 3,
     },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 6,
     elevation: 3,
   },
   previousButtonText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
-    color: '#78716C',
+    color: PREVIOUS_LABEL,
   },
   nextButtonText: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
-  },
-  stepIndicators: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 20, // Fixed height for indicators
-  },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    transition: 'all 0.3s ease',
-  },
-  decorativeCircle: {
-    position: 'absolute',
-    borderRadius: 1000,
-    backgroundColor: 'rgba(214, 181, 136, 0.08)',
-  },
-  circle1: {
-    width: 200,
-    height: 200,
-    top: '10%',
-    right: '-10%',
-  },
-  circle2: {
-    width: 150,
-    height: 150,
-    bottom: '20%',
-    left: '-8%',
-  },
-  circle3: {
-    width: 100,
-    height: 100,
-    top: '30%',
-    left: '10%',
   },
 });
