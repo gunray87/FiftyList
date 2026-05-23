@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform, Keyboard } from 'react-native';
 import { Search, X } from 'lucide-react-native';
 
@@ -26,11 +26,14 @@ export default function SearchBar({
   aiBadgeActive = false,
   onSubmitSearch,
 }: SearchBarProps) {
+  const inputRef = useRef<TextInput>(null);
+
   const handleClear = () => {
     onSearchChange('');
   };
 
   const handleSubmitEditing = () => {
+    inputRef.current?.blur();
     Keyboard.dismiss();
     onSubmitSearch?.();
   };
@@ -55,6 +58,7 @@ export default function SearchBar({
         />
         
         <TextInput
+          ref={inputRef}
           style={[styles.searchInput, isDark && styles.darkSearchInput]}
           value={searchQuery}
           onChangeText={onSearchChange}

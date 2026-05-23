@@ -1,8 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityLog, ActivityType, ItemType } from '@/types';
+import { ActivityLog, ActivityType, ItemType, Book, BookData, Movie, MovieData } from '@/types';
 import { checkMilestoneNotifications, checkActivityThreshold } from './notificationService';
 
 const ACTIVITY_LOG_KEY = 'fiftylist_activity_log';
+const ACTIVITY_BACKFILL_KEY = 'fiftylist_activity_backfill_v1';
+const LEGACY_SAMPLE_PURGE_KEY = 'fiftylist_activity_purge_samples_v1';
+
+/** Dev-only sample rows previously injected on every launch — not real user activity. */
+export function isLegacySampleActivity(activity: ActivityLog): boolean {
+  const id = (activity.id || '').trim();
+  const title = (activity.itemTitle || '').trim();
+  const author = (activity.itemAuthor || '').trim();
+  if (id.startsWith('test-')) return true;
+  if (/^Test Book \d+$/i.test(title)) return true;
+  if (/^Test Movie \d+$/i.test(title)) return true;
+  if (/^Test Author/i.test(author)) return true;
+  if (/^Test Director/i.test(author)) return true;
+  return false;
+}
+const BOOKS_STORAGE_KEY = 'fiftylist_books_data';
+const MOVIES_STORAGE_KEY = 'fiftylist_movies_data';
 const MAX_LOG_ENTRIES = 1000; // Keep last 1000 activities
 
 export class ActivityLogger {
@@ -27,6 +44,7 @@ export class ActivityLogger {
       if (stored) {
         this.logCache = JSON.parse(stored);
       }
+      await this.purgeLegacySampleActivities();
       this.isInitialized = true;
     } catch (error) {
       console.error('Error initializing activity logger:', error);
@@ -92,7 +110,7 @@ export class ActivityLogger {
     console.log('🔍 ActivityLogger: getActivities called with:', { timeRange, types, itemTypes });
     console.log('🔍 ActivityLogger: Total activities in cache:', this.logCache.length);
     
-    let filtered = [...this.logCache];
+    let filtered = this.logCache.filter((a) => !isLegacySampleActivity(a));
 
     // Filter by time range
     if (timeRange) {
@@ -177,33 +195,112 @@ export class ActivityLogger {
     return [...this.logCache];
   }
 
-  // Temporary test function to add sample activities
-  async addSampleActivities(): Promise<void> {
-    const sampleActivities: ActivityLog[] = [
-      {
-        id: 'test-1',
-        timestamp: new Date().toISOString(),
-        type: 'completed',
-        itemType: 'book',
-        itemId: 1,
-        itemTitle: 'Test Book 1',
-        itemAuthor: 'Test Author 1',
-        metadata: { rating: 4 }
-      },
-      {
-        id: 'test-2',
-        timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 1 week ago
-        type: 'added',
-        itemType: 'movie',
-        itemId: 2,
-        itemTitle: 'Test Movie 1',
-        itemAuthor: 'Test Director 1'
-      }
-    ];
+  /** Strip dev sample activities that were appended on each app start in older builds. */
+  async purgeLegacySampleActivities(): Promise<number> {
+    const before = this.logCache.length;
+    if (before === 0) return 0;
 
-    this.logCache.push(...sampleActivities);
+    const cleaned = this.logCache.filter((a) => !isLegacySampleActivity(a));
+    if (cleaned.length === before) return 0;
+
+    this.logCache = cleaned;
     await this.saveToStorage();
-    console.log('🧪 Sample activities added for testing');
+    await AsyncStorage.setItem(LEGACY_SAMPLE_PURGE_KEY, '1');
+    console.log(`🧹 Removed ${before - cleaned.length} legacy sample activities from log`);
+    return before - cleaned.length;
+  }
+
+  /**
+   * One-time backfill from saved lists when the activity log is empty (e.g. lists
+   * populated before activity logging shipped).
+   */
+  async backfillFromStoredListsIfEmpty(): Promise<void> {
+    await this.initialize();
+    await this.purgeLegacySampleActivities();
+    if (this.logCache.length > 0) return;
+
+    const alreadyDone = await AsyncStorage.getItem(ACTIVITY_BACKFILL_KEY);
+    if (alreadyDone === '1') return;
+
+    try {
+      const booksRaw = await AsyncStorage.getItem(BOOKS_STORAGE_KEY);
+      const moviesRaw = await AsyncStorage.getItem(MOVIES_STORAGE_KEY);
+      const books: BookData = booksRaw
+        ? JSON.parse(booksRaw)
+        : { completed: [], inProgress: [], planned: [], fails: [], allTime: [] };
+      const movies: MovieData = moviesRaw
+        ? JSON.parse(moviesRaw)
+        : { completed: [], inProgress: [], planned: [], fails: [], allTime: [] };
+
+      const pushEntry = (
+        type: ActivityType,
+        itemType: ItemType,
+        item: Book | Movie,
+        toCategory?: string,
+        metadata?: Record<string, unknown>
+      ) => {
+        const ts =
+          type === 'completed' && item.completedDate
+            ? new Date(item.completedDate).toISOString()
+            : type === 'added' && item.dateAdded
+              ? new Date(item.dateAdded).toISOString()
+              : type === 'started' && item.dateStarted
+                ? new Date(item.dateStarted).toISOString()
+                : new Date().toISOString();
+
+        this.logCache.push({
+          id: `backfill-${type}-${itemType}-${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          timestamp: ts,
+          type,
+          itemType,
+          itemId: item.id,
+          itemTitle: item.title,
+          itemAuthor: item.author,
+          toCategory,
+          metadata,
+        });
+      };
+
+      const bookBuckets: Array<{ items: Book[]; type: ActivityType; category: string }> = [
+        { items: books.completed ?? [], type: 'completed', category: 'completed' },
+        { items: books.inProgress ?? [], type: 'started', category: 'inProgress' },
+        { items: books.planned ?? [], type: 'added', category: 'planned' },
+      ];
+      for (const bucket of bookBuckets) {
+        for (const book of bucket.items) {
+          if (!book?.title) continue;
+          pushEntry(bucket.type, 'book', book, bucket.category, {
+            rating: book.rating,
+            format: book.format,
+          });
+        }
+      }
+
+      const movieBuckets: Array<{ items: Movie[]; type: ActivityType; category: string }> = [
+        { items: movies.completed ?? [], type: 'completed', category: 'completed' },
+        { items: movies.inProgress ?? [], type: 'started', category: 'inProgress' },
+        { items: movies.planned ?? [], type: 'added', category: 'planned' },
+      ];
+      for (const bucket of movieBuckets) {
+        for (const movie of bucket.items) {
+          if (!movie?.title) continue;
+          pushEntry(bucket.type, 'movie', movie, bucket.category, {
+            rating: movie.rating,
+            format: movie.format,
+          });
+        }
+      }
+
+      if (this.logCache.length > MAX_LOG_ENTRIES) {
+        this.logCache = this.logCache.slice(0, MAX_LOG_ENTRIES);
+      }
+
+      await this.saveToStorage();
+      await AsyncStorage.setItem(ACTIVITY_BACKFILL_KEY, '1');
+      console.log(`📝 Backfilled ${this.logCache.length} activities from saved lists`);
+    } catch (error) {
+      console.error('Error backfilling activity log:', error);
+    }
   }
 
   private async checkNotifications(): Promise<void> {

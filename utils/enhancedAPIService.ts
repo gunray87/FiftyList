@@ -1,5 +1,5 @@
-import { useSubscription } from '@/hooks/useSubscription';
 import { BookSearchResult, MovieSearchResult } from '@/types';
+import { searchMovies as searchMoviesUnified } from '@/utils/movieSearch';
 
 class EnhancedAPIService {
   private subscription: any;
@@ -142,28 +142,24 @@ class EnhancedAPIService {
 
   private async searchMoviesEnhanced(query: string): Promise<MovieSearchResult[]> {
     try {
-      const [tmdbResults, omdbResults] = await Promise.all([
-        this.searchTMDB(query),
-        this.searchOMDb(query)
-      ]);
-      
-      return this.mergeMovieResults([tmdbResults, omdbResults]);
+      const results = await searchMoviesUnified(query);
+      return results.map((r) => ({
+        id: r.id,
+        title: r.title,
+        director: r.author,
+        year: r.year,
+        description: r.description,
+        rating: r.rating,
+        thumbnail: r.thumbnail ?? null,
+        genres: null,
+        cast: null,
+        runtime: null,
+        availability: null,
+      }));
     } catch (error) {
       console.error('Error in enhanced movie search:', error);
       return [];
     }
-  }
-
-  private async searchTMDB(query: string): Promise<MovieSearchResult[]> {
-    // TMDB API implementation
-    console.log('TMDB search would be implemented here');
-    return [];
-  }
-
-  private async searchOMDb(query: string): Promise<MovieSearchResult[]> {
-    // OMDb API implementation
-    console.log('OMDb search would be implemented here');
-    return [];
   }
 
   private mergeAndEnrichResults(results: BookSearchResult[][]): BookSearchResult[] {

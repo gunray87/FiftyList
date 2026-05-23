@@ -159,9 +159,9 @@ export default function UpgradeModal({
           </View>
 
           {/* Local-first note */}
-          <View style={[styles.freeTierNote, isDark && styles.darkFreeTierNote]}>
-            <Text style={[styles.freeTierText, isDark && styles.darkSecondaryText]}>
-              💡 Both tiers keep your lists local on-device. Premium adds AI-powered features.
+          <View style={[styles.planNote, isDark && styles.darkPlanNote]}>
+            <Text style={[styles.planNoteText, isDark && styles.darkSecondaryText]}>
+              💡 Entry and Premium keep your lists on-device. Premium adds AI-powered features.
             </Text>
           </View>
         </ScrollView>
@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#6B7280',
   },
-  freeTierNote: {
+  planNote: {
     backgroundColor: '#EFF6FF',
     padding: 18,
     borderRadius: 16,
@@ -414,11 +414,11 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
-  darkFreeTierNote: {
+  darkPlanNote: {
     backgroundColor: '#1E3A5F',
     borderLeftColor: '#60A5FA',
   },
-  freeTierText: {
+  planNoteText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#1E40AF',

@@ -1,25 +1,56 @@
 import { ActivityLog, SharingOptions } from '@/types';
 import { ActivityLogger } from './activityLogger';
+import {
+  buildListFormatRows,
+  buildListItemIndex,
+  dedupeActivitiesByItemAndType,
+  formatCategoryLabel,
+  loadStoredListsForShare,
+  sanitizeActivitiesForShare,
+  shareAccuracyFooter,
+} from './shareActivityAccuracy';
 
 export class ActivitySharing {
   private static formatDate(date: string): string {
     const d = new Date(date);
-    return d.toLocaleDateString('en-US', { 
-      month: 'long', 
+    if (Number.isNaN(d.getTime())) return date;
+    return d.toLocaleDateString('en-US', {
+      month: 'long',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     });
   }
 
   private static formatTimeRange(timeRange: string): string {
     switch (timeRange) {
-      case 'lastWeek': return 'this week';
-      case 'lastMonth': return 'this month';
-      case 'last3Months': return 'the last 3 months';
-      case 'last6Months': return 'the last 6 months';
-      case 'lastYear': return 'this year';
-      default: return 'recently';
+      case 'lastWeek':
+        return 'this week';
+      case 'lastMonth':
+        return 'this month';
+      case 'last3Months':
+        return 'the last 3 months';
+      case 'last6Months':
+        return 'the last 6 months';
+      case 'lastYear':
+        return 'this year';
+      default:
+        return 'recently';
     }
+  }
+
+  private static formatCreditLine(activity: ActivityLog): string {
+    const author = (activity.itemAuthor || '').trim();
+    if (!author || /^unknown$/i.test(author)) {
+      return `"${activity.itemTitle}"`;
+    }
+    return activity.itemType === 'book'
+      ? `"${activity.itemTitle}" by ${author}`
+      : `"${activity.itemTitle}" directed by ${author}`;
+  }
+
+  private static formatRatingSuffix(rating?: number): string {
+    const r = typeof rating === 'number' && rating >= 1 && rating <= 5 ? rating : undefined;
+    return r ? ` (rated ${r}/5)` : '';
   }
 
   private static groupActivitiesByType(activities: ActivityLog[]) {
@@ -29,10 +60,10 @@ export class ActivitySharing {
       moved: [] as ActivityLog[],
       rated: [] as ActivityLog[],
       started: [] as ActivityLog[],
-      other: [] as ActivityLog[]
+      other: [] as ActivityLog[],
     };
 
-    activities.forEach(activity => {
+    activities.forEach((activity) => {
       if (groups[activity.type as keyof typeof groups]) {
         groups[activity.type as keyof typeof groups].push(activity);
       } else {
@@ -43,258 +74,274 @@ export class ActivitySharing {
     return groups;
   }
 
-  static generateSummaryText(activities: ActivityLog[], options: SharingOptions): string {
+  private static appendFooter(summary: string, omittedCount: number): string {
+    summary += shareAccuracyFooter(omittedCount);
+    summary += `\n---\nShared from FiftyList — your reading and watching tracker`;
+    return summary;
+  }
+
+  static generateSummaryText(
+    activities: ActivityLog[],
+    options: SharingOptions,
+    omittedCount: number
+  ): string {
     if (activities.length === 0) {
-      return `I haven't had any reading or watching activity ${this.formatTimeRange(options.timeRange)}.`;
+      const empty = `I haven't had any reading or watching activity ${this.formatTimeRange(options.timeRange)}.`;
+      return this.appendFooter(empty, omittedCount);
     }
 
     const groups = this.groupActivitiesByType(activities);
     const timeRange = this.formatTimeRange(options.timeRange);
     let summary = `Here's what I've been up to ${timeRange}:\n\n`;
 
-    // Completed items
     if (groups.completed.length > 0) {
-      const books = groups.completed.filter(a => a.itemType === 'book');
-      const movies = groups.completed.filter(a => a.itemType === 'movie');
+      const books = groups.completed.filter((a) => a.itemType === 'book');
+      const movies = groups.completed.filter((a) => a.itemType === 'movie');
 
       if (books.length > 0) {
         summary += `**Books I finished:**\n`;
-        books.forEach(book => {
-          const rating = book.metadata?.rating ? ` (rated ${book.metadata.rating}/5)` : '';
-          summary += `• "${book.itemTitle}" by ${book.itemAuthor}${rating}\n`;
+        books.forEach((book) => {
+          summary += `• ${this.formatCreditLine(book)}${this.formatRatingSuffix(book.metadata?.rating)}\n`;
         });
         summary += '\n';
       }
 
       if (movies.length > 0) {
         summary += `**Movies I watched:**\n`;
-        movies.forEach(movie => {
-          const rating = movie.metadata?.rating ? ` (rated ${movie.metadata.rating}/5)` : '';
-          summary += `• "${movie.itemTitle}" directed by ${movie.itemAuthor}${rating}\n`;
+        movies.forEach((movie) => {
+          summary += `• ${this.formatCreditLine(movie)}${this.formatRatingSuffix(movie.metadata?.rating)}\n`;
         });
         summary += '\n';
       }
     }
 
-    // Added items
     if (groups.added.length > 0) {
-      const books = groups.added.filter(a => a.itemType === 'book');
-      const movies = groups.added.filter(a => a.itemType === 'movie');
+      const books = groups.added.filter((a) => a.itemType === 'book');
+      const movies = groups.added.filter((a) => a.itemType === 'movie');
 
       if (books.length > 0) {
         summary += `**Books I added to my list:**\n`;
-        books.forEach(book => {
-          summary += `• "${book.itemTitle}" by ${book.itemAuthor}\n`;
+        books.forEach((book) => {
+          summary += `• ${this.formatCreditLine(book)}\n`;
         });
         summary += '\n';
       }
 
       if (movies.length > 0) {
         summary += `**Movies I added to my list:**\n`;
-        movies.forEach(movie => {
-          summary += `• "${movie.itemTitle}" directed by ${movie.itemAuthor}\n`;
+        movies.forEach((movie) => {
+          summary += `• ${this.formatCreditLine(movie)}\n`;
         });
         summary += '\n';
       }
     }
 
-    // Started items
     if (groups.started.length > 0) {
-      const books = groups.started.filter(a => a.itemType === 'book');
-      const movies = groups.started.filter(a => a.itemType === 'movie');
+      const books = groups.started.filter((a) => a.itemType === 'book');
+      const movies = groups.started.filter((a) => a.itemType === 'movie');
 
       if (books.length > 0) {
         summary += `**Books I started reading:**\n`;
-        books.forEach(book => {
-          summary += `• "${book.itemTitle}" by ${book.itemAuthor}\n`;
+        books.forEach((book) => {
+          summary += `• ${this.formatCreditLine(book)}\n`;
         });
         summary += '\n';
       }
 
       if (movies.length > 0) {
         summary += `**Movies I started watching:**\n`;
-        movies.forEach(movie => {
-          summary += `• "${movie.itemTitle}" directed by ${movie.itemAuthor}\n`;
+        movies.forEach((movie) => {
+          summary += `• ${this.formatCreditLine(movie)}\n`;
         });
         summary += '\n';
       }
     }
 
-    // Ratings
     if (groups.rated.length > 0) {
-      const books = groups.rated.filter(a => a.itemType === 'book');
-      const movies = groups.rated.filter(a => a.itemType === 'movie');
-
-      if (books.length > 0 || movies.length > 0) {
+      const rated = groups.rated.filter((a) => a.metadata?.rating);
+      if (rated.length > 0) {
         summary += `**Recent ratings:**\n`;
-        [...books, ...movies].forEach(item => {
+        rated.forEach((item) => {
           const rating = item.metadata?.rating;
-          if (rating) {
-            const type = item.itemType === 'book' ? 'book' : 'movie';
-            summary += `• "${item.itemTitle}" (${type}): ${rating}/5 stars\n`;
-          }
+          const type = item.itemType === 'book' ? 'book' : 'movie';
+          summary += `• ${this.formatCreditLine(item)} (${type}): ${rating}/5 stars\n`;
         });
         summary += '\n';
       }
     }
 
-    // Summary stats
-    const totalCompleted = groups.completed.length;
-    const totalAdded = groups.added.length;
-    const totalStarted = groups.started.length;
+    const uniqueCompleted = new Set(
+      groups.completed.map((a) => `${a.itemType}:${a.itemId}`)
+    ).size;
+    const uniqueAdded = new Set(groups.added.map((a) => `${a.itemType}:${a.itemId}`)).size;
+    const uniqueStarted = new Set(groups.started.map((a) => `${a.itemType}:${a.itemId}`)).size;
 
-    if (totalCompleted > 0 || totalAdded > 0 || totalStarted > 0) {
-      summary += `**Summary:** ${totalCompleted} completed, ${totalStarted} in progress, ${totalAdded} added to my list.\n\n`;
+    if (uniqueCompleted > 0 || uniqueAdded > 0 || uniqueStarted > 0) {
+      summary += `**Summary:** ${uniqueCompleted} finished, ${uniqueStarted} started, ${uniqueAdded} added to my lists.\n\n`;
     }
 
-    summary += `---\nShared from FiftyList - my reading and watching tracker`;
-
-    return summary;
+    return this.appendFooter(summary, omittedCount);
   }
 
-  static generateDetailedText(activities: ActivityLog[], options: SharingOptions): string {
+  static generateDetailedText(
+    activities: ActivityLog[],
+    options: SharingOptions,
+    omittedCount: number
+  ): string {
     if (activities.length === 0) {
-      return `No activity ${this.formatTimeRange(options.timeRange)}.`;
+      const empty = `No activity ${this.formatTimeRange(options.timeRange)}.`;
+      return this.appendFooter(empty, omittedCount);
     }
 
     const timeRange = this.formatTimeRange(options.timeRange);
     let detailed = `Detailed activity log ${timeRange}:\n\n`;
 
-    // Group by date
     const groupedByDate: Record<string, ActivityLog[]> = {};
-    activities.forEach(activity => {
+    activities.forEach((activity) => {
       const date = new Date(activity.timestamp).toDateString();
-      if (!groupedByDate[date]) {
-        groupedByDate[date] = [];
-      }
+      if (!groupedByDate[date]) groupedByDate[date] = [];
       groupedByDate[date].push(activity);
     });
 
-    // Sort dates
-    const sortedDates = Object.keys(groupedByDate).sort((a, b) => 
-      new Date(b).getTime() - new Date(a).getTime()
+    const sortedDates = Object.keys(groupedByDate).sort(
+      (a, b) => new Date(b).getTime() - new Date(a).getTime()
     );
 
-    sortedDates.forEach(date => {
-      const activities = groupedByDate[date];
+    sortedDates.forEach((date) => {
+      const dayActivities = groupedByDate[date];
       detailed += `**${this.formatDate(date)}**\n`;
-      
-      activities.forEach(activity => {
+
+      dayActivities.forEach((activity) => {
         const time = new Date(activity.timestamp).toLocaleTimeString('en-US', {
           hour: 'numeric',
-          minute: '2-digit'
+          minute: '2-digit',
         });
-        
+
         let action = '';
         switch (activity.type) {
           case 'added':
-            action = `Added "${activity.itemTitle}" to ${activity.toCategory || 'my list'}`;
+            action = `Added ${this.formatCreditLine(activity)} to ${formatCategoryLabel(
+              activity.toCategory,
+              activity.itemType
+            )}`;
             break;
           case 'completed':
-            action = `Completed "${activity.itemTitle}"`;
+            action = `Finished ${this.formatCreditLine(activity)}`;
             break;
           case 'started':
-            action = `Started "${activity.itemTitle}"`;
+            action = `Started ${this.formatCreditLine(activity)}`;
             break;
           case 'moved':
-            action = `Moved "${activity.itemTitle}" from ${activity.fromCategory} to ${activity.toCategory}`;
+            action = `Moved ${this.formatCreditLine(activity)} from ${formatCategoryLabel(
+              activity.fromCategory,
+              activity.itemType
+            )} to ${formatCategoryLabel(activity.toCategory, activity.itemType)}`;
             break;
-          case 'rated':
+          case 'rated': {
             const rating = activity.metadata?.rating;
-            action = `Rated "${activity.itemTitle}" ${rating}/5 stars`;
+            action = rating
+              ? `Rated ${this.formatCreditLine(activity)} ${rating}/5 stars`
+              : `Rated ${this.formatCreditLine(activity)}`;
             break;
+          }
           default:
-            action = `${activity.type} "${activity.itemTitle}"`;
+            action = `${activity.type} ${this.formatCreditLine(activity)}`;
         }
 
         const type = activity.itemType === 'book' ? '[Book]' : '[Movie]';
         detailed += `${time} ${type} ${action}\n`;
       });
-      
+
       detailed += '\n';
     });
 
-    detailed += `---\nShared from FiftyList`;
-
-    return detailed;
+    return this.appendFooter(detailed, omittedCount);
   }
 
-  static generateListText(activities: ActivityLog[], options: SharingOptions): string {
-    if (activities.length === 0) {
-      return `No items ${this.formatTimeRange(options.timeRange)}.`;
+  static generateListText(
+    activities: ActivityLog[],
+    options: SharingOptions,
+    index: ReturnType<typeof buildListItemIndex>,
+    omittedCount: number
+  ): string {
+    const rows = buildListFormatRows(activities, index);
+
+    if (rows.length === 0) {
+      const empty = `No items ${this.formatTimeRange(options.timeRange)}.`;
+      return this.appendFooter(empty, omittedCount);
     }
 
     const timeRange = this.formatTimeRange(options.timeRange);
     let list = `My reading and watching list ${timeRange}:\n\n`;
 
-    // Group by type and status
-    const books = activities.filter(a => a.itemType === 'book');
-    const movies = activities.filter(a => a.itemType === 'movie');
+    const books = rows.filter((r) => r.activity.itemType === 'book');
+    const movies = rows.filter((r) => r.activity.itemType === 'movie');
 
     if (books.length > 0) {
       list += `**Books (${books.length}):**\n`;
-      books.forEach(book => {
-        const status = book.type === 'completed' ? '[Done] ' : 
-                      book.type === 'started' ? '[Reading] ' : '[List] ';
-        const rating = book.metadata?.rating ? ` (${book.metadata.rating}/5)` : '';
-        list += `${status} "${book.itemTitle}" by ${book.itemAuthor}${rating}\n`;
+      books.forEach(({ activity, snapshot }) => {
+        const status = `[${formatCategoryLabel(snapshot.category, 'book')}] `;
+        list += `${status}${this.formatCreditLine(activity)}${this.formatRatingSuffix(
+          activity.metadata?.rating
+        )}\n`;
       });
       list += '\n';
     }
 
     if (movies.length > 0) {
       list += `**Movies (${movies.length}):**\n`;
-      movies.forEach(movie => {
-        const status = movie.type === 'completed' ? '[Watched] ' : 
-                      movie.type === 'started' ? '[Watching] ' : '[List] ';
-        const rating = movie.metadata?.rating ? ` (${movie.metadata.rating}/5)` : '';
-        list += `${status} "${movie.itemTitle}" directed by ${movie.itemAuthor}${rating}\n`;
+      movies.forEach(({ activity, snapshot }) => {
+        const status = `[${formatCategoryLabel(snapshot.category, 'movie')}] `;
+        list += `${status}${this.formatCreditLine(activity)}${this.formatRatingSuffix(
+          activity.metadata?.rating
+        )}\n`;
       });
       list += '\n';
     }
 
-    list += `---\nShared from FiftyList`;
-
-    return list;
+    return this.appendFooter(list, omittedCount);
   }
 
   static async generateShareableContent(options: SharingOptions): Promise<string> {
     const logger = ActivityLogger.getInstance();
-    
-    console.log('🔍 ActivitySharing: Generating content with options:', options);
-    
-    // Get activities based on options
+
+    await logger.backfillFromStoredListsIfEmpty();
+
     const activities = await logger.getActivities(
       options.timeRange,
       options.includeTypes.length > 0 ? options.includeTypes : undefined,
       options.includeItemTypes.length > 0 ? options.includeItemTypes : undefined
     );
 
-    console.log('🔍 ActivitySharing: Retrieved activities:', activities.length, activities);
-
-    // Filter by custom date range if specified
     let filteredActivities = activities;
     if (options.timeRange === 'custom' && options.customStartDate && options.customEndDate) {
       const startDate = new Date(options.customStartDate);
       const endDate = new Date(options.customEndDate);
-      filteredActivities = activities.filter(activity => {
-        const activityDate = new Date(activity.timestamp);
-        return activityDate >= startDate && activityDate <= endDate;
-      });
+      endDate.setHours(23, 59, 59, 999);
+      if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime())) {
+        filteredActivities = activities.filter((activity) => {
+          const activityDate = new Date(activity.timestamp);
+          return activityDate >= startDate && activityDate <= endDate;
+        });
+      }
     }
 
-    console.log('🔍 ActivitySharing: Filtered activities:', filteredActivities.length);
+    const { books, movies } = await loadStoredListsForShare();
+    const index = buildListItemIndex(books, movies);
+    const { activities: sanitized, omittedCount } = sanitizeActivitiesForShare(
+      filteredActivities,
+      index
+    );
+    const deduped = dedupeActivitiesByItemAndType(sanitized);
 
-    // Generate content based on format
     switch (options.format) {
-      case 'summary':
-        return this.generateSummaryText(filteredActivities, options);
       case 'detailed':
-        return this.generateDetailedText(filteredActivities, options);
+        return this.generateDetailedText(deduped, options, omittedCount);
       case 'list':
-        return this.generateListText(filteredActivities, options);
+        return this.generateListText(deduped, options, index, omittedCount);
+      case 'summary':
       default:
-        return this.generateSummaryText(filteredActivities, options);
+        return this.generateSummaryText(deduped, options, omittedCount);
     }
   }
 }

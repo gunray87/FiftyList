@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Text, Alert, Share, Modal, TextInput, TouchableOpacity, Platform } from 'react-native';
+import { View, StyleSheet, FlatList, Text, Alert, Share, Modal, TextInput, TouchableOpacity, Platform, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BookOpen, Clock, Target, X, Star } from 'lucide-react-native';
 import { useDataStore } from '@/hooks/useDataStore';
@@ -15,7 +15,6 @@ import ImportModal from '@/components/ImportModal';
 import SearchBar from '@/components/SearchBar';
 import YearFolderSelector from '../../components/YearFolderSelector';
 import WelcomeTour from '@/components/WelcomeTour';
-import ActivitySharingModal from '@/components/ActivitySharingModal';
 import ExportOptionsModal from '@/components/ExportOptionsModal';
 import { fieldMatchesQuery } from '@/utils/searchMatch';
 import { alertAfterShareError, shareExportViaMessages } from '@/utils/postShareFlow';
@@ -50,7 +49,6 @@ export default function BooksScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [showSharingModal, setShowSharingModal] = useState(false);
   const [showExportOptionsModal, setShowExportOptionsModal] = useState(false);
   const [panelView, setPanelView] = useState<'goal' | 'categories'>('categories');
   const currentYear = new Date().getFullYear();
@@ -590,7 +588,6 @@ export default function BooksScreen() {
         onExportPress={handleExport}
         onImportPress={() => setShowImportModal(true)}
         onSearchPress={() => setShowSearch(!showSearch)}
-        onSharePress={() => setShowSharingModal(true)}
         primaryColor="#D97706"
         secondaryColor="#B45309"
         isDark={false}
@@ -688,6 +685,7 @@ export default function BooksScreen() {
             isDark={false}
             backgroundColor="#D6B588"
             maxLength={PREMIUM_LIST_SEARCH_MAX_CHARS}
+            onSubmitSearch={() => Keyboard.dismiss()}
           />
           {showSearch && listSearchIntent?.explanationShort ? (
             <View style={styles.llmSearchStatusRow}>
@@ -713,6 +711,7 @@ export default function BooksScreen() {
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         extraData={`${forceUpdate}-${activeTab}-${sortedBooks.length}-${books.planned.length}`}
         removeClippedSubviews={Platform.OS !== 'web'}
         maxToRenderPerBatch={10}
@@ -734,14 +733,6 @@ export default function BooksScreen() {
         visible={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImport}
-        isDark={false}
-      />
-
-      {/* Activity Sharing Modal */}
-      <ActivitySharingModal
-        visible={showSharingModal}
-        onClose={() => setShowSharingModal(false)}
-        primaryColor="#D97706"
         isDark={false}
       />
 
