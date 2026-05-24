@@ -51,8 +51,12 @@ export async function llmPremiumPost<T>(
     }
     const data = (await response.json()) as T;
     return { ok: true, data };
-  } catch {
-    return { ok: false, status: 0 };
+  } catch (e) {
+    const msg =
+      e instanceof Error && e.name === 'AbortError'
+        ? 'Request timed out — check your connection and try again.'
+        : 'Network error — could not reach the AI service.';
+    return { ok: false, status: 0, message: msg };
   } finally {
     clearTimeout(t);
   }

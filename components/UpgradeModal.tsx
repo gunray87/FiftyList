@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { X, Crown, Check, Zap, TrendingUp } from 'lucide-react-native';
+import { FL } from '@/constants/fiftyListTheme';
 
 interface UpgradeModalProps {
   visible: boolean;
@@ -29,8 +30,8 @@ export default function UpgradeModal({
   };
 
   const features = [
-    { icon: Zap, text: 'Online Book Search (Google Books API)', highlight: true },
-    { icon: Zap, text: 'Movie Search (TMDB + OMDb)', highlight: true },
+    { icon: Zap, text: 'Online Book Search (Google Books API)' },
+    { icon: Zap, text: 'Movie Search (OMDb)' },
     { icon: TrendingUp, text: 'Enhanced Multi-Source Search' },
     { icon: TrendingUp, text: 'Price Tracking & Alerts' },
     { icon: TrendingUp, text: 'Advanced AI Recommendations' },
@@ -50,13 +51,13 @@ export default function UpgradeModal({
         {/* Header */}
         <View style={[styles.header, isDark && styles.darkHeader]}>
           <View style={styles.headerLeft}>
-            <Crown size={24} color="#8B5CF6" />
+            <Crown size={24} color={FL.amber} />
             <Text style={[styles.title, isDark && styles.darkText]}>
               Choose Your Utility Plan
             </Text>
           </View>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <X size={24} color={isDark ? "#9CA3AF" : "#6B7280"} />
+          <TouchableOpacity onPress={onClose} style={[styles.closeButtonGhost, isDark && styles.darkCloseButtonGhost]}>
+            <X size={20} color={isDark ? '#9CA3AF' : FL.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -87,20 +88,10 @@ export default function UpgradeModal({
             </Text>
             {features.map((feature, index) => (
               <View key={index} style={styles.featureRow}>
-                <View style={[
-                  styles.featureIcon,
-                  feature.highlight && styles.featureIconHighlight
-                ]}>
-                  <feature.icon
-                    size={16}
-                    color={feature.highlight ? '#8B5CF6' : '#10B981'}
-                  />
+                <View style={styles.featureIcon}>
+                  <feature.icon size={16} color={FL.white} />
                 </View>
-                <Text style={[
-                  styles.featureText,
-                  isDark && styles.darkText,
-                  feature.highlight && styles.featureTextHighlight
-                ]}>
+                <Text style={[styles.featureText, isDark && styles.darkText]}>
                   {feature.text}
                 </Text>
               </View>
@@ -205,8 +196,18 @@ const styles = StyleSheet.create({
   darkText: {
     color: '#FFFFFF',
   },
-  closeButton: {
-    padding: 8,
+  closeButtonGhost: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: FL.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  darkCloseButtonGhost: {
+    borderColor: '#4B5563',
   },
   content: {
     flex: 1,
@@ -258,10 +259,12 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
   },
   featuresSection: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
+    backgroundColor: FL.card,
+    borderRadius: 14,
     padding: 20,
     marginBottom: 24,
+    borderWidth: 0.5,
+    borderColor: FL.border,
   },
   darkSection: {
     backgroundColor: '#1F2937',
@@ -282,39 +285,26 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#D1FAE5',
+    backgroundColor: FL.amber,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  featureIconHighlight: {
-    backgroundColor: '#EDE9FE',
-    shadowColor: '#8B5CF6',
-    shadowOpacity: 0.2,
   },
   featureText: {
     fontSize: 15,
     fontFamily: 'Inter-Regular',
-    color: '#374151',
+    color: FL.textDark,
     flex: 1,
-  },
-  featureTextHighlight: {
-    fontFamily: 'Inter-Medium',
   },
   pricingSection: {
     marginBottom: 24,
   },
   pricingCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: FL.card,
     borderRadius: 20,
     padding: 24,
     marginBottom: 16,
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
+    borderWidth: 0.5,
+    borderColor: FL.border,
     position: 'relative',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -327,12 +317,12 @@ const styles = StyleSheet.create({
     borderColor: '#374151',
   },
   pricingCardRecommended: {
-    borderColor: '#8B5CF6',
-    backgroundColor: '#FAF5FF',
-    borderWidth: 3,
-    shadowColor: '#8B5CF6',
+    borderColor: FL.amber,
+    backgroundColor: FL.amberTint,
+    borderWidth: 1.5,
+    shadowColor: FL.amber,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 6,
   },
@@ -340,13 +330,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -12,
     right: 20,
-    backgroundColor: '#8B5CF6',
+    backgroundColor: FL.amber,
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,
-    shadowColor: '#8B5CF6',
+    shadowColor: FL.amber,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
   },
@@ -386,7 +376,7 @@ const styles = StyleSheet.create({
   pricingSavings: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
-    color: '#059669',
+    color: FL.amber,
     marginBottom: 4,
   },
   pricingEquivalent: {
@@ -403,25 +393,23 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   planNote: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: FL.card,
     padding: 18,
-    borderRadius: 16,
+    borderRadius: 14,
     borderLeftWidth: 4,
-    borderLeftColor: '#3B82F6',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 1,
+    borderLeftColor: FL.amber,
+    borderWidth: 0.5,
+    borderColor: FL.border,
   },
   darkPlanNote: {
-    backgroundColor: '#1E3A5F',
-    borderLeftColor: '#60A5FA',
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
+    borderLeftColor: FL.amber,
   },
   planNoteText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
-    color: '#1E40AF',
+    color: FL.textDark,
     lineHeight: 20,
     letterSpacing: 0.1,
   },

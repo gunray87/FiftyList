@@ -5,13 +5,18 @@ export const ENABLE_LLM_ASSIST = process.env.EXPO_PUBLIC_ENABLE_LLM_ASSIST === '
 /** Proxy URL is set and assist is enabled for this build (UI may still be premium-gated). */
 export function isLlmProxyReady(baseUrl: string | undefined): boolean {
   const configured = Boolean(typeof baseUrl === 'string' && baseUrl.trim().length > 0);
-  return configured && (ENABLE_LLM_ASSIST || __DEV__);
+  if (!configured) return false;
+  // Release builds bake EXPO_PUBLIC_LLM_PROXY_BASE_URL at compile time — URL is the source of truth.
+  if (!__DEV__) return true;
+  return ENABLE_LLM_ASSIST;
 }
 
-/** Live LLM calls and editable AI controls — Premium only. */
+/** Live LLM calls and editable AI controls — Premium only (dev bypass when LLM is configured in .env). */
 export function isLlmPremiumFeatureActive(
   features: Pick<SubscriptionFeatures, 'canUseLLM'>,
   baseUrl: string | undefined
 ): boolean {
-  return features.canUseLLM === true && isLlmProxyReady(baseUrl);
+  if (!isLlmProxyReady(baseUrl)) return false;
+  if (__DEV__ && ENABLE_LLM_ASSIST) return true;
+  return features.canUseLLM === true;
 }

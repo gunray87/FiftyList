@@ -34,6 +34,8 @@ import UpgradeModal from './UpgradeModal';
 import { useOnboarding } from '@/hooks/OnboardingContext';
 import { AppSettingsPanel } from './AppSettingsModal';
 import { DismissedSuggestionsPanel } from './DismissedSuggestionsModal';
+import { FL } from '@/constants/fiftyListTheme';
+import { getAppVersionLabel } from '@/utils/appVersion';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -210,7 +212,8 @@ export default function SettingsModal({
     subtitle, 
     onPress, 
     showArrow = true,
-    iconColor = isDark ? '#9CA3AF' : '#6B7280',
+    iconColor = isDark ? '#9CA3AF' : FL.textMuted,
+    iconBackgroundColor,
     disabled = false
   }: {
     icon: React.ComponentType<any>;
@@ -219,6 +222,7 @@ export default function SettingsModal({
     onPress: () => void;
     showArrow?: boolean;
     iconColor?: string;
+    iconBackgroundColor?: string;
     disabled?: boolean;
   }) => (
     <TouchableOpacity 
@@ -235,7 +239,13 @@ export default function SettingsModal({
       accessibilityHint={subtitle}
     >
       <View style={styles.settingItemLeft}>
-        <View style={[styles.iconContainer, isDark && styles.darkIconContainer]}>
+        <View
+          style={[
+            styles.iconContainer,
+            isDark && styles.darkIconContainer,
+            iconBackgroundColor != null && { backgroundColor: iconBackgroundColor },
+          ]}
+        >
           <Icon size={20} color={iconColor} />
         </View>
         <View style={styles.textContainer}>
@@ -256,7 +266,7 @@ export default function SettingsModal({
   );
 
   const SectionHeader = ({ title }: { title: string }) => (
-    <Text style={[styles.sectionHeader, isDark && styles.darkSecondaryText]}>
+    <Text style={[styles.sectionHeader, isDark && styles.darkSectionHeader]}>
       {title}
     </Text>
   );
@@ -278,11 +288,11 @@ export default function SettingsModal({
               <Text style={[styles.title, isDark && styles.darkText]}>About FiftyList</Text>
               <TouchableOpacity
                 onPress={() => setShowAbout(false)}
-                style={styles.closeButton}
+                style={[styles.closeButtonGhost, isDark && styles.darkCloseButtonGhost]}
                 accessibilityRole="button"
                 accessibilityLabel="Back to Settings"
               >
-                <X size={24} color={isDark ? '#9CA3AF' : '#6B7280'} />
+                <X size={20} color={isDark ? '#9CA3AF' : FL.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -303,7 +313,9 @@ export default function SettingsModal({
                 Your data never leaves your device. We don't collect, store, or share any personal information. Your reading and watching habits remain completely private.
               </Text>
               <View style={styles.aboutVersion}>
-                <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>Version 1.0.0</Text>
+                <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>
+                  {getAppVersionLabel()}
+                </Text>
                 <Text style={[styles.aboutVersionText, isDark && styles.darkSecondaryText]}>Built with React Native & Expo</Text>
               </View>
             </ScrollView>
@@ -318,8 +330,8 @@ export default function SettingsModal({
             <Text style={[styles.title, isDark && styles.darkText]}>
               Settings
             </Text>
-            <TouchableOpacity onPress={handleMainModalClose} style={styles.closeButton}>
-              <X size={24} color={isDark ? "#9CA3AF" : "#6B7280"} />
+            <TouchableOpacity onPress={handleMainModalClose} style={[styles.closeButtonGhost, isDark && styles.darkCloseButtonGhost]}>
+              <X size={20} color={isDark ? '#9CA3AF' : FL.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -346,10 +358,12 @@ export default function SettingsModal({
               showManageSubscription={isRevenueCatReady}
               isDark={isDark}
             />
-            <Text style={[styles.subscriptionDebugText, isDark && styles.darkTertiaryText]}>
-              Billing status: {isRevenueCatReady ? 'RevenueCat configured' : 'RevenueCat not configured'} ·
-              {' '}Tier: {subscription?.tier ?? 'none'}
-            </Text>
+            {__DEV__ && (
+              <Text style={[styles.subscriptionDebugText, isDark && styles.darkTertiaryText]}>
+                Billing status: {isRevenueCatReady ? 'RevenueCat configured' : 'RevenueCat not configured'} ·
+                {' '}Tier: {subscription?.tier ?? 'none'}
+              </Text>
+            )}
             {isRevenueCatReady && (
               <View style={[styles.section, isDark && styles.darkSection, styles.restoreSection]}>
                 <SettingItem
@@ -364,7 +378,7 @@ export default function SettingsModal({
                       Alert.alert('Restore Failed', 'Unable to restore purchases right now.');
                     }
                   }}
-                  iconColor="#6366F1"
+                  iconColor={FL.amber}
                 />
               </View>
             )}
@@ -377,7 +391,8 @@ export default function SettingsModal({
                 title="Default Preferences"
                 subtitle="Set default format and source for new items"
                 onPress={handleAppSettingsPress}
-                iconColor="#8B5CF6"
+                iconColor={FL.amber}
+                iconBackgroundColor={isDark ? undefined : FL.amberTint}
               />
               <View style={[styles.separator, isDark && styles.darkSeparator]} />
               <SettingItem
@@ -385,7 +400,7 @@ export default function SettingsModal({
                 title="Dismissed Suggestions"
                 subtitle="Manage your dismissed recommendations"
                 onPress={() => setShowDismissedSuggestions(true)}
-                iconColor="#8B5CF6"
+                iconColor={FL.amber}
               />
             </View>
 
@@ -403,7 +418,7 @@ export default function SettingsModal({
                     handleMainModalClose();
                   }
                 }}
-                iconColor="#10B981"
+                iconColor={FL.amber}
                 disabled={isExporting}
               />
               <View style={[styles.separator, isDark && styles.darkSeparator]} />
@@ -415,7 +430,7 @@ export default function SettingsModal({
                   onImportPress();
                   handleMainModalClose();
                 }}
-                iconColor="#3B82F6"
+                iconColor={FL.amber}
               />
               <View style={[styles.separator, isDark && styles.darkSeparator]} />
               <SettingItem
@@ -430,7 +445,7 @@ export default function SettingsModal({
                     setTimeout(openShare, delayMs);
                   }
                 }}
-                iconColor="#8B5CF6"
+                iconColor={FL.amber}
               />
             </View>
 
@@ -442,7 +457,7 @@ export default function SettingsModal({
                 title="Show Welcome Tour"
                 subtitle="Learn about FiftyList features"
                 onPress={handleShowTour}
-                iconColor="#8B5CF6"
+                iconColor={FL.amber}
               />
               <View style={[styles.separator, isDark && styles.darkSeparator]} />
               <SettingItem
@@ -454,7 +469,7 @@ export default function SettingsModal({
                   retakeOnboarding();
                   handleMainModalClose();
                 }}
-                iconColor="#F59E0B"
+                iconColor={FL.amber}
               />
             </View>
 
@@ -464,9 +479,9 @@ export default function SettingsModal({
               <SettingItem
                 icon={Info}
                 title="About FiftyList"
-                subtitle="Version 1.0.0"
+                subtitle={getAppVersionLabel({ includeBuild: false })}
                 onPress={() => setShowAbout(true)}
-                iconColor="#8B5CF6"
+                iconColor={FL.amber}
               />
               <View style={[styles.separator, isDark && styles.darkSeparator]} />
               <SettingItem
@@ -474,7 +489,7 @@ export default function SettingsModal({
                 title="Rate the App"
                 subtitle="Help us improve with your feedback"
                 onPress={handleRateApp}
-                iconColor="#F59E0B"
+                iconColor={FL.amber}
               />
             </View>
 
@@ -534,12 +549,29 @@ export default function SettingsModal({
         onSelectPlan={async (tier) => {
           try {
             console.log(`💳 User selected ${tier} tier`);
-            await subscribeToTier(tier);
+            const completed = await subscribeToTier(tier);
+            if (!completed) {
+              Alert.alert(
+                'Purchase not completed',
+                tier === 'premium'
+                  ? 'Premium was not activated. If you already subscribe, try Restore Purchases. Otherwise complete the App Store purchase flow.'
+                  : 'The Entry plan was not activated. Please try again or use Restore Purchases.'
+              );
+              return;
+            }
             setShowUpgradeModal(false);
-            console.log('✅ Upgrade completed successfully');
+            Alert.alert(
+              'Plan updated',
+              tier === 'premium'
+                ? 'You now have Premium on this device.'
+                : 'You are now on the Entry plan.'
+            );
           } catch (error) {
             console.error('❌ Upgrade failed:', error);
-            // In a real app, you'd show an error message
+            Alert.alert(
+              'Purchase failed',
+              error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+            );
           }
         }}
         isDark={isDark}
@@ -551,7 +583,7 @@ export default function SettingsModal({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: FL.sand,
   },
   darkContainer: {
     backgroundColor: '#111827',
@@ -577,30 +609,45 @@ const styles = StyleSheet.create({
   darkText: {
     color: '#FFFFFF',
   },
-  closeButton: {
-    padding: 8,
+  closeButtonGhost: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: FL.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  darkCloseButtonGhost: {
+    borderColor: '#4B5563',
   },
   content: {
     flex: 1,
     padding: 20,
   },
   sectionHeader: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: 'Inter-SemiBold',
-    color: '#6B7280',
+    color: FL.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 1.6,
     marginTop: 24,
     marginBottom: 8,
     marginLeft: 4,
+  },
+  darkSectionHeader: {
+    color: '#9CA3AF',
   },
   darkSecondaryText: {
     color: '#9CA3AF',
   },
   section: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+    backgroundColor: FL.card,
+    borderRadius: 14,
     overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: FL.border,
   },
   darkSection: {
     backgroundColor: '#1F2937',
@@ -614,7 +661,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: FL.card,
   },
   darkSettingItem: {
     backgroundColor: '#1F2937',

@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Crown, Check, X, ChevronRight } from 'lucide-react-native';
+import { Crown, Check, Lock, ChevronRight } from 'lucide-react-native';
 import { UserSubscription, SubscriptionFeatures } from '@/types/subscription';
+import { FL } from '@/constants/fiftyListTheme';
 
 interface SubscriptionStatusCardProps {
   subscription: UserSubscription | null;
@@ -29,10 +30,9 @@ export default function SubscriptionStatusCard({
 
   return (
     <View style={[styles.card, isDark && styles.darkCard]}>
-      {/* Current Tier Header */}
       <View style={styles.header}>
         <View style={styles.tierBadge}>
-          {isPremium && <Crown size={16} color="#F59E0B" />}
+          {isPremium && <Crown size={16} color={FL.amber} />}
           <Text style={[styles.tierName, isDark && styles.darkText]}>
             {isPremium ? 'Premium Utility' : isEntry ? 'Entry Utility' : 'No Subscription'}
           </Text>
@@ -44,63 +44,21 @@ export default function SubscriptionStatusCard({
         )}
       </View>
 
-      {/* Features List */}
       <View style={styles.features}>
-        <FeatureRow
-          icon={features.canSearchBooks ? Check : X}
-          text="Online Book Search (Google Books API)"
-          enabled={features.canSearchBooks}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.canSearchMovies ? Check : X}
-          text="Movie Search (TMDB + OMDb)"
-          enabled={features.canSearchMovies}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.canUseEnhancedSearch ? Check : X}
-          text="Enhanced Multi-Source Search"
-          enabled={features.canUseEnhancedSearch}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.canUseLLM ? Check : X}
-          text="LLM Search & AI Item Creation"
-          enabled={features.canUseLLM}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.canTrackPrices ? Check : X}
-          text="Price Tracking & Alerts"
-          enabled={features.canTrackPrices}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.canGetRecommendations ? Check : X}
-          text="Advanced AI Recommendations"
-          enabled={features.canGetRecommendations}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.hasPrioritySupport ? Check : X}
-          text="Priority Support"
-          enabled={features.hasPrioritySupport}
-          isDark={isDark}
-        />
-        <FeatureRow
-          icon={features.hasUnlimitedItems ? Check : X}
-          text="Unlimited Items"
-          enabled={features.hasUnlimitedItems}
-          isDark={isDark}
-        />
+        <FeatureRow text="Online Book Search (Google Books API)" enabled={features.canSearchBooks} isDark={isDark} />
+        <FeatureRow text="Movie Search (OMDb)" enabled={features.canSearchMovies} isDark={isDark} />
+        <FeatureRow text="Enhanced Multi-Source Search" enabled={features.canUseEnhancedSearch} isDark={isDark} />
+        <FeatureRow text="LLM Search & AI Item Creation" enabled={features.canUseLLM} isDark={isDark} />
+        <FeatureRow text="Price Tracking & Alerts" enabled={features.canTrackPrices} isDark={isDark} />
+        <FeatureRow text="Advanced AI Recommendations" enabled={features.canGetRecommendations} isDark={isDark} />
+        <FeatureRow text="Priority Support" enabled={features.hasPrioritySupport} isDark={isDark} />
+        <FeatureRow text="Unlimited Items" enabled={features.hasUnlimitedItems} isDark={isDark} />
       </View>
 
-      {/* Unsubscribed: local lists only; pick Entry or Premium */}
       {tier === 'free' && (
-        <View style={styles.localDbInfo}>
-          <Text style={[styles.localDbText, isDark && styles.darkSecondaryText]}>
-            📚 Your lists stay on this device. Subscribe to Entry or Premium for online search and more.
+        <View style={[styles.localDbInfo, isDark && styles.darkLocalDbInfo]}>
+          <Text style={[styles.localDbText, isDark && styles.darkLocalDbText]}>
+            Your lists stay on this device. Subscribe to Entry or Premium for online search and more.
           </Text>
         </View>
       )}
@@ -114,14 +72,14 @@ export default function SubscriptionStatusCard({
           }}
         >
           <Text style={styles.upgradeButtonText}>View Entry & Premium Plans</Text>
-          <ChevronRight size={16} color="#FFFFFF" />
+          <ChevronRight size={16} color={FL.white} />
         </TouchableOpacity>
       )}
 
       {isEntry && (
-        <View style={styles.localDbInfo}>
-          <Text style={[styles.localDbText, isDark && styles.darkSecondaryText]}>
-            📚 Entry includes local tracking and API search. Upgrade to Premium for LLM features.
+        <View style={[styles.localDbInfo, isDark && styles.darkLocalDbInfo]}>
+          <Text style={[styles.localDbText, isDark && styles.darkLocalDbText]}>
+            Entry includes local tracking and API search. Upgrade to Premium for LLM features.
           </Text>
         </View>
       )}
@@ -135,7 +93,7 @@ export default function SubscriptionStatusCard({
           }}
         >
           <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
-          <ChevronRight size={16} color="#FFFFFF" />
+          <ChevronRight size={16} color={FL.white} />
         </TouchableOpacity>
       )}
 
@@ -164,7 +122,6 @@ export default function SubscriptionStatusCard({
         </View>
       )}
 
-      {/* Expiration Info */}
       {subscription?.expiresAt && (
         <Text style={[styles.expirationText, isDark && styles.darkTertiaryText]}>
           {isPremium ? 'Renews' : 'Expires'} on {new Date(subscription.expiresAt).toLocaleDateString()}
@@ -174,30 +131,45 @@ export default function SubscriptionStatusCard({
   );
 }
 
-const FeatureRow = ({ icon: Icon, text, enabled, isDark }: any) => (
-  <View style={styles.featureRow}>
-    <Icon
-      size={16}
-      color={enabled ? '#10B981' : '#EF4444'}
-    />
-    <Text style={[
-      styles.featureText,
-      !enabled && styles.disabledFeatureText,
-      isDark && styles.darkText
-    ]}>
-      {text}
-    </Text>
-  </View>
-);
+function FeatureRow({
+  text,
+  enabled,
+  isDark,
+}: {
+  text: string;
+  enabled: boolean;
+  isDark?: boolean;
+}) {
+  return (
+    <View style={styles.featureRow}>
+      {enabled ? (
+        <View style={styles.featureIconEnabled}>
+          <Check size={12} color={FL.white} />
+        </View>
+      ) : (
+        <Lock size={16} color={FL.textMuted} />
+      )}
+      <Text
+        style={[
+          styles.featureText,
+          !enabled && styles.lockedFeatureText,
+          isDark && enabled && styles.darkText,
+        ]}
+      >
+        {text}
+      </Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: FL.card,
     padding: 20,
     gap: 16,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderWidth: 0.5,
+    borderColor: FL.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -222,13 +194,13 @@ const styles = StyleSheet.create({
   tierName: {
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
-    color: '#111827',
+    color: FL.textDark,
   },
   darkText: {
-    color: '#FFFFFF',
+    color: FL.white,
   },
   trialBadge: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: FL.amberTint,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
@@ -236,7 +208,7 @@ const styles = StyleSheet.create({
   trialText: {
     fontSize: 11,
     fontFamily: 'Inter-SemiBold',
-    color: '#1E40AF',
+    color: FL.amber,
   },
   features: {
     gap: 8,
@@ -247,38 +219,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  featureIconEnabled: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: FL.amber,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   featureText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: '#374151',
+    color: FL.textDark,
+    flex: 1,
   },
-  disabledFeatureText: {
-    color: '#9CA3AF',
-    textDecorationLine: 'line-through',
-  },
-  darkSecondaryText: {
-    color: '#9CA3AF',
+  lockedFeatureText: {
+    color: FL.textMuted,
   },
   localDbInfo: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: FL.card,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     borderLeftWidth: 4,
-    borderLeftColor: '#6366F1',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
+    borderLeftColor: FL.amber,
+    borderWidth: 0.5,
+    borderColor: FL.border,
+  },
+  darkLocalDbInfo: {
+    backgroundColor: '#1F2937',
+    borderColor: '#374151',
   },
   localDbText: {
     fontSize: 13,
     fontFamily: 'Inter-Medium',
-    color: '#4F46E5',
+    color: FL.textDark,
     lineHeight: 18,
   },
+  darkLocalDbText: {
+    color: '#D1D5DB',
+  },
   upgradeButton: {
-    backgroundColor: '#8B5CF6',
+    backgroundColor: FL.amber,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -286,16 +267,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     marginTop: 4,
-    shadowColor: '#8B5CF6',
+    shadowColor: FL.amber,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
   },
   upgradeButtonText: {
     fontSize: 15,
     fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
+    color: FL.white,
   },
   planActions: {
     gap: 8,
@@ -303,7 +284,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: FL.border,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 10,
@@ -315,12 +296,12 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
-    color: '#374151',
+    color: FL.textDark,
   },
   expirationText: {
     fontSize: 12,
     fontFamily: 'Inter-Regular',
-    color: '#6B7280',
+    color: FL.textMuted,
     textAlign: 'center',
   },
   darkTertiaryText: {
