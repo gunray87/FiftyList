@@ -25,6 +25,9 @@ const MOVIE_BAR = '#C4A052';
 const BORDER_WARM = 'rgba(180, 83, 9, 0.15)';
 const MUTED = '#78716C';
 const MUTED_SOFT = '#A8A29E';
+const WARM_BORDER = '#D4C4A8';
+const YOY_BAR_EMPTY = '#F0E8D8';
+const AMBER_HERO = '#C87B1A';
 
 const MAX_BAR_HEIGHT = 132;
 const YOY_MINI_HEIGHT = 24;
@@ -242,6 +245,38 @@ export default function StatsScreen() {
     });
   }, [bookCompletionYearStats, currentYear]);
 
+  const movieYoyRows = React.useMemo(() => {
+    const years = [currentYear - 2, currentYear - 1, currentYear];
+    const tuple: [number, number, number] = [
+      movieCompletionYearStats[years[0]] ?? 0,
+      movieCompletionYearStats[years[1]] ?? 0,
+      movieCompletionYearStats[years[2]] ?? 0,
+    ];
+
+    const tiers = computeYoyTiers(tuple);
+    const maxYoY = Math.max(...tuple, 1);
+
+    return years.map((year, i) => {
+      const count = tuple[i];
+      const tier = tiers[i];
+      const accent = yoyAccent(tier);
+      let barFillHeight: number;
+      if (count === 0) {
+        barFillHeight = 3;
+      } else {
+        const scaled = Math.round((count / maxYoY) * YOY_MINI_HEIGHT);
+        barFillHeight = Math.min(Math.max(scaled, 4), YOY_MINI_HEIGHT);
+      }
+      return {
+        year,
+        count,
+        tier,
+        accent,
+        barFillHeight,
+      };
+    });
+  }, [movieCompletionYearStats, currentYear]);
+
   const gutter = 40;
   const chartInnerW = Math.max(screenW - gutter, 260);
   const yearSlotW =
@@ -327,6 +362,57 @@ export default function StatsScreen() {
 
   const heroFontSize =
     Platform.OS === 'web' ? Math.min(96, chartInnerW * 0.2) : Math.min(88, screenW * 0.22);
+  const movieHeroFontSize = heroFontSize * 0.65;
+
+  const renderYoySection = (
+    label: string,
+    rows: typeof yoyRows,
+    options: { useAmberBars?: boolean; isFirst?: boolean } = {},
+  ) => (
+    <View style={[styles.yoyBlock, options.isFirst && styles.yoyBlockFirst]}>
+      <Text style={styles.yoyLabel}>{label}</Text>
+      <View style={styles.yoyRow}>
+        {rows.map(({ year, count, tier, accent, barFillHeight }) => (
+          <View key={`yoy-${label}-${year}`} style={styles.yoyCell}>
+            <View style={styles.yoyBarTrack}>
+              <View
+                style={[
+                  styles.yoyBarFill,
+                  {
+                    height: barFillHeight,
+                    backgroundColor:
+                      count === 0
+                        ? YOY_BAR_EMPTY
+                        : options.useAmberBars
+                          ? AMBER_HERO
+                          : tier === 'zero'
+                            ? YOY_BAR_EMPTY
+                            : accent.bar,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.yoyYearMuted}>{year}</Text>
+            <Text
+              style={[
+                styles.yoyCount,
+                {
+                  color:
+                    count === 0
+                      ? accent.text
+                      : options.useAmberBars
+                        ? AMBER_HERO
+                        : accent.text,
+                },
+              ]}
+            >
+              {count}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 
   return (
     <SafeAreaView
@@ -352,17 +438,37 @@ export default function StatsScreen() {
           Platform.OS === 'web' && styles.webScrollContent,
         ]}
       >
-        {/* 1 · Hero */}
-        <View style={styles.heroBlock}>
-          <Text
-            adjustsFontSizeToFit
-            numberOfLines={1}
-            style={[styles.heroNumber, { fontSize: heroFontSize, lineHeight: heroFontSize * 1.02 }]}
-          >
-            {totalBooks}
-          </Text>
-          <Text style={styles.heroWord}>books</Text>
-          <Text style={styles.heroMuted}>All time</Text>
+        {/* 1 · Dual hero */}
+        <View style={styles.dualHero}>
+          <View style={styles.dualHeroCol}>
+            <Text
+              adjustsFontSizeToFit
+              numberOfLines={1}
+              style={[styles.heroNumber, { fontSize: heroFontSize, lineHeight: heroFontSize * 1.02 }]}
+            >
+              {totalBooks}
+            </Text>
+            <Text style={styles.heroWord}>books</Text>
+            <Text style={styles.heroMuted}>All time</Text>
+          </View>
+
+          <View style={styles.dualHeroDivider} />
+
+          <View style={styles.dualHeroColRight}>
+            <Text
+              adjustsFontSizeToFit
+              numberOfLines={1}
+              style={[
+                styles.heroNumber,
+                styles.heroNumberMovies,
+                { fontSize: movieHeroFontSize, lineHeight: movieHeroFontSize * 1.02 },
+              ]}
+            >
+              {totalMovies}
+            </Text>
+            <Text style={styles.heroWord}>movies</Text>
+            <Text style={styles.heroMuted}>All time</Text>
+          </View>
         </View>
 
         {/* Delight */}
@@ -388,28 +494,9 @@ export default function StatsScreen() {
             </View>
           </View>
 
-          <View style={styles.yoyBlock}>
-            <Text style={styles.yoyLabel}>Books finished by year</Text>
-            <View style={styles.yoyRow}>
-              {yoyRows.map(({ year, count, tier, accent, barFillHeight }) => (
-                <View key={`yoy-${year}`} style={styles.yoyCell}>
-                  <View style={styles.yoyBarTrack}>
-                    <View
-                      style={[
-                        styles.yoyBarFill,
-                        {
-                          height: barFillHeight,
-                          backgroundColor: tier === 'zero' ? YOY_BAR_ZERO : accent.bar,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.yoyYearMuted}>{year}</Text>
-                  <Text style={[styles.yoyCount, { color: accent.text }]}>{count}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
+          {renderYoySection('Books finished by year', yoyRows, { isFirst: true })}
+          <View style={styles.yoySectionDivider} />
+          {renderYoySection('Movies finished by year', movieYoyRows, { useAmberBars: true })}
         </View>
 
         {/* 3 · Tertiary — movies + favorites (typographic weight) */}
@@ -566,15 +653,36 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     minHeight: '100%',
   },
-  heroBlock: {
+  dualHero: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
     marginBottom: 20,
     paddingTop: 4,
+  },
+  dualHeroCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  dualHeroColRight: {
+    flex: 1,
+    minWidth: 0,
+    paddingLeft: 28,
+  },
+  dualHeroDivider: {
+    width: 1,
+    backgroundColor: WARM_BORDER,
+    alignSelf: 'stretch',
+    marginHorizontal: 16,
   },
   heroNumber: {
     fontFamily: 'Inter-Bold',
     color: '#1C1917',
     letterSpacing: -4,
     fontVariant: ['tabular-nums'],
+  },
+  heroNumberMovies: {
+    color: AMBER_HERO,
+    letterSpacing: -2,
   },
   heroWord: {
     fontFamily: 'Inter-Regular',
@@ -685,8 +793,15 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   yoyBlock: {
-    marginTop: 22,
     paddingTop: 18,
+  },
+  yoyBlockFirst: {
+    marginTop: 22,
+  },
+  yoySectionDivider: {
+    height: 0.5,
+    backgroundColor: WARM_BORDER,
+    marginTop: 4,
   },
   yoyLabel: {
     fontSize: 11,

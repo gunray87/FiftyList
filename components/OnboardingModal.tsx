@@ -6,10 +6,10 @@ import {
   TouchableOpacity,
   ScrollView,
   Modal,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Check, BookOpen, Film, Star, Heart, Zap, TrendingUp } from 'lucide-react-native';
+import { FL } from '@/constants/fiftyListTheme';
 
 interface OnboardingModalProps {
   visible: boolean;
@@ -22,22 +22,22 @@ export interface UserInterests {
   preferredFormats: string[];
   readingGoals: string[];
   moodPreferences: string[];
-  mediaTypes: ('books' | 'movies' | 'tv')[];
+  mediaTypes: ('books' | 'movies')[];
   experienceLevel: 'beginner' | 'intermediate' | 'advanced';
 }
 
 const GENRE_OPTIONS = [
-  { id: 'fantasy', label: 'Fantasy', icon: Zap, color: '#8B5CF6' },
-  { id: 'scifi', label: 'Science Fiction', icon: TrendingUp, color: '#06B6D4' },
-  { id: 'mystery', label: 'Mystery & Thriller', icon: Star, color: '#EF4444' },
-  { id: 'adventure', label: 'Adventure', icon: Heart, color: '#10B981' },
-  { id: 'literary', label: 'Literary Fiction', icon: BookOpen, color: '#F59E0B' },
-  { id: 'contemporary', label: 'Contemporary', icon: TrendingUp, color: '#EC4899' },
-  { id: 'romance', label: 'Romance', icon: Heart, color: '#F43F5E' },
-  { id: 'horror', label: 'Horror', icon: Zap, color: '#7C3AED' },
-  { id: 'historical', label: 'Historical Fiction', icon: BookOpen, color: '#B45309' },
-  { id: 'nonfiction', label: 'Non-Fiction', icon: Star, color: '#059669' },
-  { id: 'youngadult', label: 'Young Adult', icon: Heart, color: '#DC2626' },
+  { id: 'fantasy', label: 'Fantasy', icon: Zap },
+  { id: 'scifi', label: 'Science Fiction', icon: TrendingUp },
+  { id: 'mystery', label: 'Mystery & Thriller', icon: Star },
+  { id: 'adventure', label: 'Adventure', icon: Heart },
+  { id: 'literary', label: 'Literary Fiction', icon: BookOpen },
+  { id: 'contemporary', label: 'Contemporary', icon: TrendingUp },
+  { id: 'romance', label: 'Romance', icon: Heart },
+  { id: 'horror', label: 'Horror', icon: Zap },
+  { id: 'historical', label: 'Historical Fiction', icon: BookOpen },
+  { id: 'nonfiction', label: 'Non-Fiction', icon: Star },
+  { id: 'youngadult', label: 'Young Adult', icon: Heart },
 ];
 
 const FORMAT_OPTIONS = [
@@ -69,6 +69,14 @@ const EXPERIENCE_LEVELS = [
   { id: 'intermediate', label: 'Regular Reader/Watcher', description: 'Enjoy books and movies regularly' },
   { id: 'advanced', label: 'Avid Consumer', description: 'Read/watch extensively across genres' },
 ];
+
+function SelectionCheckmark() {
+  return (
+    <View style={styles.checkmark}>
+      <Check size={12} color={FL.white} />
+    </View>
+  );
+}
 
 export default function OnboardingModal({ visible, onComplete, onSkip }: OnboardingModalProps) {
   const [step, setStep] = useState(1);
@@ -117,7 +125,7 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     }));
   };
 
-  const toggleMediaType = (mediaType: 'books' | 'movies' | 'tv') => {
+  const toggleMediaType = (mediaType: 'books' | 'movies') => {
     setInterests(prev => ({
       ...prev,
       mediaTypes: prev.mediaTypes.includes(mediaType)
@@ -138,43 +146,36 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     onSkip();
   };
 
+  const renderGridOption = (
+    key: string,
+    label: string,
+    IconComponent: React.ComponentType<{ size: number; color: string }>,
+    isSelected: boolean,
+    onPress: () => void,
+  ) => (
+    <TouchableOpacity
+      key={key}
+      style={[styles.optionCard, isSelected && styles.optionCardSelected]}
+      onPress={onPress}
+    >
+      <IconComponent size={24} color={isSelected ? FL.amber : FL.textMuted} />
+      <Text style={[styles.optionLabel, isSelected && styles.optionLabelSelected]}>
+        {label}
+      </Text>
+      {isSelected && <SelectionCheckmark />}
+    </TouchableOpacity>
+  );
+
   const renderStep1 = () => (
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>What genres interest you?</Text>
       <Text style={styles.stepSubtitle}>Select all that appeal to you</Text>
-      
       <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.optionsGrid}>
           {GENRE_OPTIONS.map((genre) => {
             const IconComponent = genre.icon;
             const isSelected = interests.favoriteGenres.includes(genre.id);
-            
-            return (
-              <TouchableOpacity
-                key={genre.id}
-                style={[
-                  styles.optionCard,
-                  isSelected && { borderColor: genre.color, backgroundColor: `${genre.color}15` }
-                ]}
-                onPress={() => toggleGenre(genre.id)}
-              >
-                <IconComponent 
-                  size={24} 
-                  color={isSelected ? genre.color : '#6B7280'} 
-                />
-                <Text style={[
-                  styles.optionLabel,
-                  isSelected && { color: genre.color, fontWeight: '600' }
-                ]}>
-                  {genre.label}
-                </Text>
-                {isSelected && (
-                  <View style={[styles.checkmark, { backgroundColor: genre.color }]}>
-                    <Check size={12} color="#FFFFFF" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
+            return renderGridOption(genre.id, genre.label, IconComponent, isSelected, () => toggleGenre(genre.id));
           })}
         </View>
       </ScrollView>
@@ -185,39 +186,12 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>How do you prefer to consume content?</Text>
       <Text style={styles.stepSubtitle}>Choose your preferred formats</Text>
-      
       <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.optionsGrid}>
           {FORMAT_OPTIONS.map((format) => {
             const IconComponent = format.icon;
             const isSelected = interests.preferredFormats.includes(format.id);
-            
-            return (
-              <TouchableOpacity
-                key={format.id}
-                style={[
-                  styles.optionCard,
-                  isSelected && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-                ]}
-                onPress={() => toggleFormat(format.id)}
-              >
-                <IconComponent 
-                  size={24} 
-                  color={isSelected ? '#8B5CF6' : '#6B7280'} 
-                />
-                <Text style={[
-                  styles.optionLabel,
-                  isSelected && { color: '#8B5CF6', fontWeight: '600' }
-                ]}>
-                  {format.label}
-                </Text>
-                {isSelected && (
-                  <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                    <Check size={12} color="#FFFFFF" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
+            return renderGridOption(format.id, format.label, IconComponent, isSelected, () => toggleFormat(format.id));
           })}
         </View>
       </ScrollView>
@@ -228,39 +202,12 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>What are your reading goals?</Text>
       <Text style={styles.stepSubtitle}>What do you hope to achieve?</Text>
-      
       <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.optionsGrid}>
           {GOAL_OPTIONS.map((goal) => {
             const IconComponent = goal.icon;
             const isSelected = interests.readingGoals.includes(goal.id);
-            
-            return (
-              <TouchableOpacity
-                key={goal.id}
-                style={[
-                  styles.optionCard,
-                  isSelected && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-                ]}
-                onPress={() => toggleGoal(goal.id)}
-              >
-                <IconComponent 
-                  size={24} 
-                  color={isSelected ? '#8B5CF6' : '#6B7280'} 
-                />
-                <Text style={[
-                  styles.optionLabel,
-                  isSelected && { color: '#8B5CF6', fontWeight: '600' }
-                ]}>
-                  {goal.label}
-                </Text>
-                {isSelected && (
-                  <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                    <Check size={12} color="#FFFFFF" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
+            return renderGridOption(goal.id, goal.label, IconComponent, isSelected, () => toggleGoal(goal.id));
           })}
         </View>
       </ScrollView>
@@ -271,39 +218,12 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>What moods do you enjoy?</Text>
       <Text style={styles.stepSubtitle}>What emotional experience do you seek?</Text>
-      
       <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.optionsGrid}>
           {MOOD_OPTIONS.map((mood) => {
             const IconComponent = mood.icon;
             const isSelected = interests.moodPreferences.includes(mood.id);
-            
-            return (
-              <TouchableOpacity
-                key={mood.id}
-                style={[
-                  styles.optionCard,
-                  isSelected && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-                ]}
-                onPress={() => toggleMood(mood.id)}
-              >
-                <IconComponent 
-                  size={24} 
-                  color={isSelected ? '#8B5CF6' : '#6B7280'} 
-                />
-                <Text style={[
-                  styles.optionLabel,
-                  isSelected && { color: '#8B5CF6', fontWeight: '600' }
-                ]}>
-                  {mood.label}
-                </Text>
-                {isSelected && (
-                  <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                    <Check size={12} color="#FFFFFF" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
+            return renderGridOption(mood.id, mood.label, IconComponent, isSelected, () => toggleMood(mood.id));
           })}
         </View>
       </ScrollView>
@@ -314,38 +234,23 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>What's your experience level?</Text>
       <Text style={styles.stepSubtitle}>This helps us tailor recommendations</Text>
-      
       <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.experienceContainer}>
           {EXPERIENCE_LEVELS.map((level) => {
             const isSelected = interests.experienceLevel === level.id;
-            
             return (
               <TouchableOpacity
                 key={level.id}
-                style={[
-                  styles.experienceCard,
-                  isSelected && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-                ]}
-                onPress={() => setExperienceLevel(level.id as any)}
+                style={[styles.experienceCard, isSelected && styles.optionCardSelected]}
+                onPress={() => setExperienceLevel(level.id as 'beginner' | 'intermediate' | 'advanced')}
               >
-                <Text style={[
-                  styles.experienceTitle,
-                  isSelected && { color: '#8B5CF6', fontWeight: '600' }
-                ]}>
+                <Text style={[styles.experienceTitle, isSelected && styles.optionLabelSelected]}>
                   {level.label}
                 </Text>
-                <Text style={[
-                  styles.experienceDescription,
-                  isSelected && { color: '#8B5CF6' }
-                ]}>
+                <Text style={[styles.experienceDescription, isSelected && styles.experienceDescriptionSelected]}>
                   {level.description}
                 </Text>
-                {isSelected && (
-                  <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                    <Check size={12} color="#FFFFFF" />
-                  </View>
-                )}
+                {isSelected && <SelectionCheckmark />}
               </TouchableOpacity>
             );
           })}
@@ -358,71 +263,27 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>What types of content do you want?</Text>
       <Text style={styles.stepSubtitle}>Select all that apply</Text>
-      
       <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.mediaTypesContainer}>
-          <TouchableOpacity
-            style={[
-              styles.mediaTypeCard,
-              interests.mediaTypes.includes('books') && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-            ]}
-            onPress={() => toggleMediaType('books')}
-          >
-            <BookOpen size={32} color={interests.mediaTypes.includes('books') ? '#8B5CF6' : '#6B7280'} />
-            <Text style={[
-              styles.mediaTypeLabel,
-              interests.mediaTypes.includes('books') && { color: '#8B5CF6', fontWeight: '600' }
-            ]}>
-              Books
-            </Text>
-            {interests.mediaTypes.includes('books') && (
-              <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                <Check size={12} color="#FFFFFF" />
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.mediaTypeCard,
-              interests.mediaTypes.includes('movies') && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-            ]}
-            onPress={() => toggleMediaType('movies')}
-          >
-            <Film size={32} color={interests.mediaTypes.includes('movies') ? '#8B5CF6' : '#6B7280'} />
-            <Text style={[
-              styles.mediaTypeLabel,
-              interests.mediaTypes.includes('movies') && { color: '#8B5CF6', fontWeight: '600' }
-            ]}>
-              Movies
-            </Text>
-            {interests.mediaTypes.includes('movies') && (
-              <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                <Check size={12} color="#FFFFFF" />
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.mediaTypeCard,
-              interests.mediaTypes.includes('tv') && { borderColor: '#8B5CF6', backgroundColor: '#8B5CF615' }
-            ]}
-            onPress={() => toggleMediaType('tv')}
-          >
-            <Film size={32} color={interests.mediaTypes.includes('tv') ? '#8B5CF6' : '#6B7280'} />
-            <Text style={[
-              styles.mediaTypeLabel,
-              interests.mediaTypes.includes('tv') && { color: '#8B5CF6', fontWeight: '600' }
-            ]}>
-              TV Shows
-            </Text>
-            {interests.mediaTypes.includes('tv') && (
-              <View style={[styles.checkmark, { backgroundColor: '#8B5CF6' }]}>
-                <Check size={12} color="#FFFFFF" />
-              </View>
-            )}
-          </TouchableOpacity>
+          {([
+            { id: 'books' as const, label: 'Books', icon: BookOpen },
+            { id: 'movies' as const, label: 'Movies', icon: Film },
+          ]).map(({ id, label, icon: IconComponent }) => {
+            const isSelected = interests.mediaTypes.includes(id);
+            return (
+              <TouchableOpacity
+                key={id}
+                style={[styles.mediaTypeCard, isSelected && styles.optionCardSelected]}
+                onPress={() => toggleMediaType(id)}
+              >
+                <IconComponent size={32} color={isSelected ? FL.amber : FL.textMuted} />
+                <Text style={[styles.mediaTypeLabel, isSelected && styles.optionLabelSelected]}>
+                  {label}
+                </Text>
+                {isSelected && <SelectionCheckmark />}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </ScrollView>
     </View>
@@ -452,6 +313,8 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
     }
   };
 
+  const proceedEnabled = canProceed();
+
   return (
     <Modal
       visible={visible}
@@ -459,76 +322,51 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
       presentationStyle="pageSheet"
     >
       <SafeAreaView style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
             <Text style={styles.skipText}>Skip</Text>
           </TouchableOpacity>
-          
-          <View style={styles.progressContainer}>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${(step / 6) * 100}%` }
-                ]} 
-              />
-            </View>
-            <Text style={styles.progressText}>{step} of 6</Text>
+
+          <View style={styles.dotsRow}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <View key={i} style={[styles.dot, step === i && styles.dotActive]} />
+            ))}
           </View>
-          
-          <TouchableOpacity onPress={handleSkip} style={styles.closeButton}>
-            <X size={20} color="#6B7280" />
+
+          <TouchableOpacity onPress={handleSkip} style={styles.closeButtonGhost}>
+            <X size={18} color={FL.textMuted} />
           </TouchableOpacity>
         </View>
 
-        {/* Content */}
         <View style={styles.content}>
           {renderCurrentStep()}
         </View>
 
-        {/* Footer */}
         <View style={styles.footer}>
           {step > 1 && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.backButton}
               onPress={() => setStep(step - 1)}
             >
               <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
           )}
-          
+
           {step < 6 ? (
-            <TouchableOpacity 
-              style={[
-                styles.nextButton,
-                !canProceed() && styles.nextButtonDisabled
-              ]}
+            <TouchableOpacity
+              style={[styles.primaryButton, !proceedEnabled && styles.primaryButtonDisabled]}
               onPress={() => setStep(step + 1)}
-              disabled={!canProceed()}
+              disabled={!proceedEnabled}
             >
-              <Text style={[
-                styles.nextButtonText,
-                !canProceed() && styles.nextButtonTextDisabled
-              ]}>
-                Next
-              </Text>
+              <Text style={styles.primaryButtonText}>Next</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity 
-              style={[
-                styles.completeButton,
-                !canProceed() && styles.nextButtonDisabled
-              ]}
+            <TouchableOpacity
+              style={[styles.primaryButton, !proceedEnabled && styles.primaryButtonDisabled]}
               onPress={handleComplete}
-              disabled={!canProceed()}
+              disabled={!proceedEnabled}
             >
-              <Text style={[
-                styles.completeButtonText,
-                !canProceed() && styles.nextButtonTextDisabled
-              ]}>
-                Get Started
-              </Text>
+              <Text style={styles.primaryButtonText}>Get Started</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -540,7 +378,7 @@ export default function OnboardingModal({ visible, onComplete, onSkip }: Onboard
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: FL.sand,
   },
   header: {
     flexDirection: 'row',
@@ -548,42 +386,43 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomWidth: 0.5,
+    borderBottomColor: FL.border,
   },
   skipButton: {
-    padding: 8,
+    minWidth: 52,
+    paddingVertical: 8,
   },
   skipText: {
-    color: '#6B7280',
+    color: FL.textMuted,
     fontSize: 16,
     fontWeight: '500',
   },
-  progressContainer: {
+  dotsRow: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
+    justifyContent: 'center',
+    gap: 8,
   },
-  progressBar: {
-    width: '100%',
-    height: 4,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 2,
-    overflow: 'hidden',
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: FL.border,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#8B5CF6',
-    borderRadius: 2,
+  dotActive: {
+    backgroundColor: FL.amber,
   },
-  progressText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  closeButton: {
-    padding: 8,
+  closeButtonGhost: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: FL.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   content: {
     flex: 1,
@@ -596,13 +435,13 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#111827',
+    color: FL.textDark,
     textAlign: 'center',
     marginBottom: 8,
   },
   stepSubtitle: {
     fontSize: 16,
-    color: '#6B7280',
+    color: FL.textMuted,
     textAlign: 'center',
     marginBottom: 32,
   },
@@ -618,21 +457,30 @@ const styles = StyleSheet.create({
   optionCard: {
     width: '48%',
     aspectRatio: 1,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    borderRadius: 16,
+    backgroundColor: FL.card,
+    borderWidth: 0.5,
+    borderColor: FL.border,
+    borderRadius: 14,
     padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
+  optionCardSelected: {
+    backgroundColor: FL.amberTint,
+    borderWidth: 1.5,
+    borderColor: FL.amber,
+  },
   optionLabel: {
     marginTop: 8,
     fontSize: 14,
     fontWeight: '500',
-    color: '#374151',
+    color: FL.textDark,
     textAlign: 'center',
+  },
+  optionLabelSelected: {
+    color: FL.amber,
+    fontWeight: '600',
   },
   checkmark: {
     position: 'absolute',
@@ -641,6 +489,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
+    backgroundColor: FL.amber,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -648,23 +497,26 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   experienceCard: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    borderRadius: 16,
+    backgroundColor: FL.card,
+    borderWidth: 0.5,
+    borderColor: FL.border,
+    borderRadius: 14,
     padding: 20,
     position: 'relative',
   },
   experienceTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#111827',
+    color: FL.textDark,
     marginBottom: 4,
   },
   experienceDescription: {
     fontSize: 14,
-    color: '#6B7280',
+    color: FL.textMuted,
     lineHeight: 20,
+  },
+  experienceDescriptionSelected: {
+    color: FL.amber,
   },
   mediaTypesContainer: {
     flexDirection: 'row',
@@ -674,10 +526,10 @@ const styles = StyleSheet.create({
   mediaTypeCard: {
     flex: 1,
     aspectRatio: 1,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    borderRadius: 16,
+    backgroundColor: FL.card,
+    borderWidth: 0.5,
+    borderColor: FL.border,
+    borderRadius: 14,
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
@@ -687,53 +539,38 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: FL.textDark,
     textAlign: 'center',
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopWidth: 0.5,
+    borderTopColor: FL.border,
+    gap: 12,
   },
   backButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
   },
   backButtonText: {
     fontSize: 16,
-    color: '#6B7280',
+    color: FL.textMuted,
     fontWeight: '500',
   },
-  nextButton: {
-    backgroundColor: '#8B5CF6',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 8,
+  primaryButton: {
+    width: '100%',
+    backgroundColor: FL.amber,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
   },
-  nextButtonDisabled: {
-    backgroundColor: '#E5E7EB',
+  primaryButtonDisabled: {
+    backgroundColor: FL.border,
   },
-  nextButtonText: {
+  primaryButtonText: {
     fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  nextButtonTextDisabled: {
-    color: '#9CA3AF',
-  },
-  completeButton: {
-    backgroundColor: '#10B981',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-  },
-  completeButtonText: {
-    fontSize: 16,
-    color: '#FFFFFF',
+    color: FL.white,
     fontWeight: '600',
   },
 });

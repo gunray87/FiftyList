@@ -591,7 +591,7 @@ export default function BooksScreen() {
         primaryColor="#D97706"
         secondaryColor="#B45309"
         isDark={false}
-        backgroundColor="#D6B588"
+        backgroundColor="#F0E8D8"
         isExporting={isExporting}
       />
       
@@ -603,7 +603,7 @@ export default function BooksScreen() {
           onYearChange={setSelectedYear}
           primaryColor="#D97706"
           isDark={false}
-          backgroundColor="#D6B588"
+          backgroundColor="#F0E8D8"
         />
       )}
       
@@ -659,7 +659,7 @@ export default function BooksScreen() {
           primaryColor="#D97706"
           secondaryColor="#B45309"
           isDark={false}
-          backgroundColor="#EDE8D0"
+          backgroundColor="#FFFFFF"
           completedItems={books.completed}
           selectedYear={selectedYear}
           showGoalTable={true}
@@ -683,7 +683,7 @@ export default function BooksScreen() {
             onSearchChange={(q) => setSearchQuery(q.slice(0, PREMIUM_LIST_SEARCH_MAX_CHARS))}
             placeholder={getSearchPlaceholder()}
             isDark={false}
-            backgroundColor="#D6B588"
+            backgroundColor="#F0E8D8"
             maxLength={PREMIUM_LIST_SEARCH_MAX_CHARS}
             onSubmitSearch={() => Keyboard.dismiss()}
           />
@@ -802,7 +802,7 @@ export default function BooksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#D6B588',
+    backgroundColor: '#F0E8D8',
   },
   webContainer: {
     minHeight: '100vh',
@@ -822,7 +822,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 0,
     marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: '#DDD0BA',
     borderRadius: 12,
     padding: 4,
   },
@@ -841,7 +841,7 @@ const styles = StyleSheet.create({
   panelToggleText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
-    color: '#78716C',
+    color: '#6B5B45',
   },
   panelToggleTextActive: {
     color: '#D97706',

@@ -21,13 +21,12 @@ import { X, Star, Search, Book, Film, ChevronRight } from 'lucide-react-native';
 import { FormData, Book as BookType, Movie } from '@/types';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { useSubscription } from '@/hooks/useSubscription';
-import { searchMovies, MovieSearchResult } from '@/utils/movieSearch';
+import { searchMovies, MovieSearchResult, getLastOmdbSearchIssue } from '@/utils/movieSearch';
 import { searchBooks, searchBooksAPI, BookSearchResult } from '@/utils/bookSearch';
 import { DataQualityGate } from './DataQualityGate';
 import UpgradeModal from './UpgradeModal';
-import { llmPremiumPost } from '@/utils/llmProxyRequest';
+import { llmPremiumPost, getLlmProxyBaseUrl } from '@/utils/llmProxyRequest';
 import { isLlmPremiumFeatureActive, isLlmProxyReady } from '@/utils/llmFeatureGate';
-import { friendlyLlmErrorMessage } from '@/utils/llmProviderErrors';
 
 interface AddEditModalProps {
   visible: boolean;
@@ -68,13 +67,9 @@ function searchResultsSourceLabel(isBook: boolean, results: SearchResult[]): str
   }
   const hasOmdb = results.some((r) => r.id.startsWith('omdb-') || r.source === 'omdb');
   const hasTmdb = results.some((r) => r.id.startsWith('tmdb-') || r.source === 'tmdb');
-  if (hasOmdb && hasTmdb) return '🌐 Results from OMDb & TMDB';
-  if (hasOmdb) return '🌐 Results from OMDb';
-  if (hasTmdb) return '🌐 Results from TMDB';
+  if (hasOmdb || hasTmdb) return '🌐 Results from OMDb';
   return '📚 Results from local movie catalog';
 }
-
-const LLM_PROXY_BASE_URL = process.env.EXPO_PUBLIC_LLM_PROXY_BASE_URL?.trim() || '';
 
 /** Parse YYYY-MM-DD without UTC shift (fixes off-by-one for some locales vs `Date` parsing). */
 function parseCompletedDateParts(iso: string): { year: number; month: number; day: number } | null {
@@ -113,6 +108,7 @@ export default function AddEditModal({
 }: AddEditModalProps) {
   const { settings, isLoading: settingsLoading } = useAppSettings();
   const { features, subscription, subscribeToTier } = useSubscription();
+  const llmProxyBaseUrl = getLlmProxyBaseUrl() ?? '';
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -384,8 +380,8 @@ export default function AddEditModal({
     }
   };
 
-  const llmAssistConfigured = isLlmProxyReady(LLM_PROXY_BASE_URL);
-  const llmAssistEnabled = isLlmPremiumFeatureActive(features, LLM_PROXY_BASE_URL);
+  const llmAssistConfigured = isLlmProxyReady(llmProxyBaseUrl);
+  const llmAssistEnabled = isLlmPremiumFeatureActive(features, llmProxyBaseUrl);
 
   const dismissSearchKeyboard = useCallback(() => {
     searchInputRef.current?.blur();
@@ -398,13 +394,32 @@ export default function AddEditModal({
   }, []);
 
   const handleLLMItemDraft = async () => {
-    if (!llmAssistEnabled || !LLM_PROXY_BASE_URL) {
+    if (!llmProxyBaseUrl || !llmAssistConfigured) {
+      Alert.alert(
+        'AI unavailable',
+        __DEV__
+          ? 'LLM proxy is not loaded. Set EXPO_PUBLIC_LLM_PROXY_BASE_URL and EXPO_PUBLIC_ENABLE_LLM_ASSIST=true in .env, then restart Metro with: npx expo start --clear'
+          : 'This build does not include the AI proxy URL. Install the latest TestFlight build.'
+      );
+      return;
+    }
+
+    if (!features.canUseLLM && !(__DEV__ && llmAssistConfigured)) {
       Alert.alert(
         'Premium feature',
-        features.canUseLLM
-          ? 'AI drafting is unavailable in this build.'
-          : 'AI item drafting is included with Premium. Upgrade in Settings to enable it.'
+        subscription?.tier === 'entry'
+          ? 'AI item drafting is included with Premium, not Entry. Upgrade in Settings to enable it.'
+          : 'AI item drafting requires an active Premium subscription. Upgrade in Settings to enable it.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'View plans', onPress: () => setShowUpgradeModal(true) },
+        ]
       );
+      return;
+    }
+
+    if (!llmAssistEnabled) {
+      Alert.alert('AI unavailable', 'AI drafting could not be enabled for this session. Try Restore Purchases in Settings.');
       return;
     }
 
@@ -500,7 +515,9 @@ export default function AddEditModal({
       }
     } catch (error) {
       const raw = error instanceof Error ? error.message : 'Try again later.';
-      Alert.alert('AI Draft Failed', friendlyLlmErrorMessage(raw));
+      Alert.alert('AI Draft Failed', raw.includes('timed out') || raw.includes('not configured')
+        ? raw
+        : `Could not complete AI draft. ${raw}`);
     } finally {
       setIsLLMDraftLoading(false);
     }
@@ -516,7 +533,24 @@ export default function AddEditModal({
         const localResults = await searchBooksLocal(query);
         setSearchResults(localResults);
 
-        if (localResults.length === 0) {
+        if (localResults.length === 0 && features.canSearchBooks) {
+          setSearchError(null);
+          setIsAPISearching(true);
+          try {
+            const apiResults = await searchBooksAPIOnly(query);
+            if (apiResults.length > 0) {
+              setSearchResults(apiResults);
+            } else {
+              setShowAPISearchButton(true);
+              setSearchError(`No books found for "${query}"`);
+            }
+          } catch {
+            setShowAPISearchButton(true);
+            setSearchError(`No local results for "${query}". Online search failed — try again.`);
+          } finally {
+            setIsAPISearching(false);
+          }
+        } else if (localResults.length === 0) {
           setShowAPISearchButton(true);
           setSearchError(`No books found in local database for "${query}". Try searching online.`);
         } else {
@@ -532,9 +566,18 @@ export default function AddEditModal({
         if (results.length === 0) {
           setSearchError(`No movies found for "${query}"`);
         } else if (!results.some((r) => r.id.startsWith('omdb-') || r.id.startsWith('tmdb-'))) {
-          setSearchError(
-            'Showing local catalog only. Set EXPO_PUBLIC_OMDB_API_KEY in .env and restart Metro for OMDb results.'
-          );
+          const omdbIssue = getLastOmdbSearchIssue();
+          if (omdbIssue === 'missing_key') {
+            setSearchError(
+              'Showing local catalog only. Set EXPO_PUBLIC_OMDB_API_KEY in .env and restart Metro for OMDb results.'
+            );
+          } else if (omdbIssue === 'invalid_key') {
+            setSearchError(
+              'OMDb rejected your API key. Request a free key at omdbapi.com/apikey.aspx, update EXPO_PUBLIC_OMDB_API_KEY in .env, then restart Metro with cache cleared (npx expo start --clear).'
+            );
+          } else {
+            setSearchError('Showing local catalog only. Online movie search is unavailable right now.');
+          }
         } else {
           setSearchError(null);
         }
@@ -760,12 +803,12 @@ export default function AddEditModal({
               <Text style={[styles.searchResultAuthor, isDark && styles.darkSecondaryText]}>
                 by {result.author || ''}
               </Text>
-              {result.publicationYear && (
+              {result.publicationYear != null && result.publicationYear > 0 && (
                 <Text style={[styles.searchResultYear, isDark && styles.darkTertiaryText]}>
-                  {result.publicationYear || ''}
+                  {result.publicationYear}
                 </Text>
               )}
-              {result.rating && (
+              {result.rating != null && result.rating > 0 && (
                 <View style={styles.searchResultRating}>
                   <Star size={12} color="#F59E0B" fill="#F59E0B" />
                   <Text style={[styles.searchResultRatingText, isDark && styles.darkTertiaryText]}>
@@ -972,15 +1015,17 @@ export default function AddEditModal({
                 )}
               </TouchableOpacity>
             ) : llmAssistConfigured ? (
-              <View
+              <TouchableOpacity
                 style={[styles.llmDraftButton, styles.llmDraftButtonLocked, { borderColor: '#D1D5DB' }]}
-                accessibilityRole="text"
+                onPress={() => setShowUpgradeModal(true)}
+                accessibilityRole="button"
                 accessibilityLabel="AI draft item details, premium only"
+                accessibilityHint="Opens upgrade options for Premium AI drafting"
               >
                 <Text style={[styles.llmButtonText, styles.llmButtonTextLocked]}>
                   🔒 AI Draft Item Details (Premium)
                 </Text>
-              </View>
+              </TouchableOpacity>
             ) : null}
           </>
         )}
@@ -1399,11 +1444,21 @@ export default function AddEditModal({
       onSelectPlan={async (tier) => {
         try {
           console.log(`💳 User selected ${tier} tier from AddEditModal`);
-          await subscribeToTier(tier);
+          const completed = await subscribeToTier(tier);
+          if (!completed) {
+            Alert.alert(
+              'Purchase not completed',
+              'Your plan was not changed. Try again or use Restore Purchases in Settings.'
+            );
+            return;
+          }
           setShowUpgradeModal(false);
-          console.log('✅ Upgrade completed, closing modal');
         } catch (error) {
           console.error('❌ Upgrade failed:', error);
+          Alert.alert(
+            'Purchase failed',
+            error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+          );
         }
       }}
       isDark={isDark}

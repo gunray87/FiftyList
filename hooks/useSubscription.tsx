@@ -22,8 +22,8 @@ interface SubscriptionContextType {
   features: SubscriptionFeatures;
   isLoading: boolean;
   isRevenueCatReady: boolean;
-  subscribeToTier: (tier: 'entry' | 'premium') => Promise<void>;
-  upgradeToPremium: () => Promise<void>;
+  subscribeToTier: (tier: 'entry' | 'premium') => Promise<boolean>;
+  upgradeToPremium: () => Promise<boolean>;
   startFreeTrial: () => Promise<void>;
   downgradeToEntry: () => Promise<void>;
   clearLocalTierOverride: () => Promise<void>;
@@ -136,32 +136,50 @@ export const useSubscriptionProvider = () => {
     }
   };
 
-  const subscribeToTier = async (tier: 'entry' | 'premium') => {
+  const subscribeToTier = async (tier: 'entry' | 'premium'): Promise<boolean> => {
     try {
+      const localOverride = await getSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY);
+      // Local "Entry" testing override must not block a real Premium purchase.
+      if (localOverride === 'entry' && tier === 'premium') {
+        await clearLocalTierOverride();
+      }
+
       if (isRevenueCatReady) {
+        const synced = await syncSubscriptionFromRevenueCat();
+        if (synced?.tier === tier) {
+          await clearLocalTierOverride();
+          await saveSubscription(synced);
+          console.log(`🎉 RevenueCat already active for ${tier}`);
+          return true;
+        }
+
         const purchased = await purchaseRevenueCatTier(tier);
-        if (purchased) {
+        if (purchased?.tier === tier) {
           await clearLocalTierOverride();
           await saveSubscription(purchased);
           console.log(`🎉 RevenueCat ${tier} purchase completed`);
-          return;
+          return true;
         }
-        // Either user cancelled purchase flow or purchase result was unavailable.
-        return;
+
+        // User cancelled, or purchase did not grant the requested tier.
+        if (localOverride === 'entry' && tier === 'premium') {
+          await setSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY, 'entry');
+          await saveSubscription(buildEntrySubscription());
+        }
+        return false;
       }
 
       if (__DEV__) {
-        // Dev-only simulation for local builds without RevenueCat keys.
         const simulatedSubscription: UserSubscription = {
           tier,
           status: 'active',
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           autoRenew: true,
         };
-        await deleteSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY);
+        await clearLocalTierOverride();
         await saveSubscription(simulatedSubscription);
         console.log(`🎉 User subscribed to ${tier} (simulated dev fallback)`);
-        return;
+        return true;
       }
 
       throw new Error(
@@ -173,9 +191,7 @@ export const useSubscriptionProvider = () => {
     }
   };
 
-  const upgradeToPremium = async () => {
-    await subscribeToTier('premium');
-  };
+  const upgradeToPremium = async () => subscribeToTier('premium');
 
   const startFreeTrial = async () => {
     const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now

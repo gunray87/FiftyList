@@ -5,10 +5,19 @@ import { getOmdbApiKey, OMDB_BASE_URL } from './omdbConfig';
 import { stripDirectedByPrefix } from './formatDirectorDisplay';
 import { COMPREHENSIVE_MOVIE_DATA } from '@/data/comprehensiveMovieCatalog';
 
-const TMDB_API_KEY = getTmdbApiKey();
-const OMDB_API_KEY = getOmdbApiKey();
-
 const ONLINE_RESULT_CAP = 8;
+
+export type OmdbSearchIssue = 'missing_key' | 'invalid_key' | 'api_error' | null;
+
+let lastOmdbSearchIssue: OmdbSearchIssue = null;
+
+export function getLastOmdbSearchIssue(): OmdbSearchIssue {
+  return lastOmdbSearchIssue;
+}
+
+export function isOmdbApiKeyConfigured(): boolean {
+  return Boolean(getOmdbApiKey());
+}
 const TOTAL_RESULT_CAP = 15;
 
 export interface MovieSearchResult {
@@ -80,9 +89,10 @@ function mergeMovieResultLists(lists: MovieSearchResult[][]): MovieSearchResult[
 }
 
 async function fetchOmdbDetail(imdbId: string): Promise<OmdbDetail | null> {
-  if (!OMDB_API_KEY || !imdbId) return null;
+  const apiKey = getOmdbApiKey();
+  if (!apiKey || !imdbId) return null;
   try {
-    const url = `${OMDB_BASE_URL}?apikey=${encodeURIComponent(OMDB_API_KEY)}&i=${encodeURIComponent(imdbId)}&plot=short`;
+    const url = `${OMDB_BASE_URL}?apikey=${encodeURIComponent(apiKey)}&i=${encodeURIComponent(imdbId)}&plot=short`;
     const response = await fetch(url);
     if (!response.ok) return null;
     const data = (await response.json()) as OmdbDetail;
@@ -111,19 +121,29 @@ function mapOmdbDetailToResult(detail: OmdbDetail): MovieSearchResult | null {
   };
 }
 
+function classifyOmdbError(message?: string): OmdbSearchIssue {
+  if (!message) return 'api_error';
+  const lower = message.toLowerCase();
+  if (lower.includes('invalid api key')) return 'invalid_key';
+  return 'api_error';
+}
+
 /** OMDb search + detail fetch for director/plot (https://www.omdbapi.com/). */
 async function searchOmdbMovies(query: string): Promise<MovieSearchResult[]> {
-  if (!OMDB_API_KEY) {
+  const apiKey = getOmdbApiKey();
+  if (!apiKey) {
+    lastOmdbSearchIssue = 'missing_key';
     console.warn('⚠️ OMDb API key not configured. Set EXPO_PUBLIC_OMDB_API_KEY in .env');
     return [];
   }
 
   try {
     console.log(`🔍 Searching OMDb API for: "${query}"`);
-    const searchUrl = `${OMDB_BASE_URL}?apikey=${encodeURIComponent(OMDB_API_KEY)}&s=${encodeURIComponent(query)}&type=movie&page=1`;
+    const searchUrl = `${OMDB_BASE_URL}?apikey=${encodeURIComponent(apiKey)}&s=${encodeURIComponent(query)}&type=movie&page=1`;
     const response = await fetch(searchUrl);
     if (!response.ok) {
       console.log(`OMDb search response not ok: ${response.status}`);
+      lastOmdbSearchIssue = 'api_error';
       return [];
     }
 
@@ -135,8 +155,13 @@ async function searchOmdbMovies(query: string): Promise<MovieSearchResult[]> {
 
     if (data.Response !== 'True' || !Array.isArray(data.Search) || data.Search.length === 0) {
       console.log(`No OMDb results for "${query}"${data.Error ? `: ${data.Error}` : ''}`);
+      if (data.Error) {
+        lastOmdbSearchIssue = classifyOmdbError(data.Error);
+      }
       return [];
     }
+
+    lastOmdbSearchIssue = null;
 
     const hits = data.Search.filter((item) => item.Type === 'movie' || !item.Type).slice(
       0,
@@ -170,17 +195,19 @@ async function searchOmdbMovies(query: string): Promise<MovieSearchResult[]> {
     return results;
   } catch (error) {
     console.error('OMDb API error:', error);
+    lastOmdbSearchIssue = 'api_error';
     return [];
   }
 }
 
 async function searchTmdbMovies(query: string): Promise<MovieSearchResult[]> {
-  if (!TMDB_API_KEY) return [];
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) return [];
 
   try {
     console.log(`🔍 Searching TMDB API for: "${query}"`);
     const response = await fetch(
-      `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`
+      `${TMDB_BASE_URL}/search/movie?api_key=${apiKey}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`
     );
 
     if (!response.ok) {
@@ -293,6 +320,7 @@ const searchHardCodedMovies = (query: string): MovieSearchResult[] => {
 };
 
 export const searchMovies = async (query: string): Promise<MovieSearchResult[]> => {
+  lastOmdbSearchIssue = null;
   try {
     const hardCodedResults = searchHardCodedMovies(query);
     const [omdbResults, tmdbResults] = await Promise.all([
@@ -351,11 +379,12 @@ export const getMovieById = async (id: string): Promise<MovieSearchResult | null
     return detail ? mapOmdbDetailToResult(detail) : null;
   }
 
-  if (id.startsWith('tmdb-') && TMDB_API_KEY) {
+  const tmdbApiKey = getTmdbApiKey();
+  if (id.startsWith('tmdb-') && tmdbApiKey) {
     try {
       const tmdbId = id.replace('tmdb-', '');
       const response = await fetch(
-        `${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`
+        `${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${tmdbApiKey}&language=en-US`
       );
       if (response.ok) {
         const movie = await response.json();

@@ -119,12 +119,16 @@ export async function purchaseRevenueCatTier(tier: SubscriptionTierId): Promise<
   try {
     const { customerInfo } = await Purchases.purchasePackage(targetPackage);
     return customerInfoToSubscription(customerInfo);
-  } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : '';
-    if (message.includes('cancel')) {
-      // User cancellation is an expected flow; don't treat it as a hard failure.
+  } catch (error: unknown) {
+    const err = error as { userCancelled?: boolean; message?: string };
+    if (err?.userCancelled === true) {
       return null;
     }
+    const message = (err?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
+    if (message.includes('cancel') || message.includes('cancelled')) {
+      return null;
+    }
+    console.error('RevenueCat purchase failed:', error);
     throw error;
   }
 }
