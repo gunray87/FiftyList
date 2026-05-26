@@ -2,7 +2,7 @@
   "expo": {
     "name": "FiftyList",
     "slug": "bolt-expo-nativewind",
-    "version": "1.5.4",
+    "version": "1.6.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "fiftylist",
@@ -31,7 +31,7 @@
     },
     "android": {
       "package": "com.chrisgunn.fiftylist",
-      "versionCode": 21,
+      "versionCode": 22,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#D6B588"
