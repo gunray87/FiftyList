@@ -548,7 +548,6 @@ export default function BooksScreen() {
             isBook={true}
             primaryColor="#D97706"
             isDark={false}
-            backgroundColor="#EDE8D0"
             canReorder={true}
           />
         );
@@ -562,7 +561,6 @@ export default function BooksScreen() {
             isBook={true}
             primaryColor="#D97706"
             isDark={false}
-            backgroundColor="#EDE8D0"
           />
         );
       }
