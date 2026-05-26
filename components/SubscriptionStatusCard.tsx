@@ -49,7 +49,6 @@ export default function SubscriptionStatusCard({
         <FeatureRow text="Movie Search (OMDb)" enabled={features.canSearchMovies} isDark={isDark} />
         <FeatureRow text="Enhanced Multi-Source Search" enabled={features.canUseEnhancedSearch} isDark={isDark} />
         <FeatureRow text="LLM Search & AI Item Creation" enabled={features.canUseLLM} isDark={isDark} />
-        <FeatureRow text="Price Tracking & Alerts" enabled={features.canTrackPrices} isDark={isDark} />
         <FeatureRow text="Advanced AI Recommendations" enabled={features.canGetRecommendations} isDark={isDark} />
         <FeatureRow text="Priority Support" enabled={features.hasPrioritySupport} isDark={isDark} />
         <FeatureRow text="Unlimited Items" enabled={features.hasUnlimitedItems} isDark={isDark} />

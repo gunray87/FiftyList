@@ -800,11 +800,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 0,
     marginBottom: 8,
-    backgroundColor: 'rgba(17,24,39,0.6)',
+    backgroundColor: '#1E2235',
     borderRadius: 12,
     padding: 4,
     borderWidth: 1,
-    borderColor: '#1F2937',
+    borderColor: '#2A2A4A',
   },
   panelToggleButton: {
     flex: 1,

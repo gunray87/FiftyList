@@ -533,7 +533,24 @@ export default function AddEditModal({
         const localResults = await searchBooksLocal(query);
         setSearchResults(localResults);
 
-        if (localResults.length === 0) {
+        if (localResults.length === 0 && features.canSearchBooks) {
+          setSearchError(null);
+          setIsAPISearching(true);
+          try {
+            const apiResults = await searchBooksAPIOnly(query);
+            if (apiResults.length > 0) {
+              setSearchResults(apiResults);
+            } else {
+              setShowAPISearchButton(true);
+              setSearchError(`No books found for "${query}"`);
+            }
+          } catch {
+            setShowAPISearchButton(true);
+            setSearchError(`No local results for "${query}". Online search failed — try again.`);
+          } finally {
+            setIsAPISearching(false);
+          }
+        } else if (localResults.length === 0) {
           setShowAPISearchButton(true);
           setSearchError(`No books found in local database for "${query}". Try searching online.`);
         } else {

@@ -78,10 +78,8 @@ export function DismissedSuggestionsPanel({
       }
     };
 
-    if (visible) {
-      loadDismissedSuggestions();
-    }
-  }, [visible]);
+    loadDismissedSuggestions();
+  }, []);
 
   const handleResetDismissed = () => {
     Alert.alert(

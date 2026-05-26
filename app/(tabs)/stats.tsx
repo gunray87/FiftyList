@@ -655,7 +655,7 @@ const styles = StyleSheet.create({
   },
   dualHero: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'baseline',
     marginBottom: 20,
     paddingTop: 4,
   },

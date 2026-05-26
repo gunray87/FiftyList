@@ -54,7 +54,7 @@ export default function TabNavigation({
   const accent = primaryColor || DEFAULT_PRIMARY;
 
   const palette = useMemo(() => {
-    const inactiveBorder = hexToRgbA(accent, isDark ? 0.5 : 0.38);
+    const inactiveBorder = isDark ? '#2A2A4A' : hexToRgbA(accent, 0.38);
     const badgeMuted = hexToRgbA(accent, isDark ? 0.18 : 0.12);
     // Movies (dark / blue): cool blue tints. Books (light / amber): warm stone.
     const inactiveIcon = isDark ? '#93C5FD' : '#78716C';
