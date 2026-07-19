@@ -66,36 +66,13 @@ export default function SettingsModal({
   const {
     subscription,
     features,
-    subscribeToTier,
+    subscribeToPremium,
     restorePurchases,
     isRevenueCatReady,
-    downgradeToEntry,
     openManageSubscriptions,
+    isBetaTierTestingEnabled,
+    setTestTier,
   } = useSubscription();
-
-  const confirmDowngradeToEntry = () => {
-    Alert.alert(
-      'Switch to Entry plan?',
-      'Premium-only features (LLM assist, price tracking) will turn off on this device. App Store billing is unchanged unless you manage it there.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Switch to Entry',
-          onPress: () => {
-            void (async () => {
-              try {
-                await downgradeToEntry();
-                Alert.alert('Plan updated', 'You are now on the Entry plan on this device.');
-              } catch (error) {
-                console.error('Failed to switch to Entry:', error);
-                Alert.alert('Could not switch plan', 'Please try again.');
-              }
-            })();
-          },
-        },
-      ]
-    );
-  };
 
   const handleContactPress = () => {
     const email = 'support@fiftylist.app';
@@ -354,15 +331,63 @@ export default function SettingsModal({
                   );
                 }
               }}
-              onDowngradeToEntry={subscription?.tier === 'premium' ? confirmDowngradeToEntry : undefined}
               showManageSubscription={isRevenueCatReady}
               isDark={isDark}
             />
-            {__DEV__ && (
+            {(isBetaTierTestingEnabled || __DEV__) && (
               <Text style={[styles.subscriptionDebugText, isDark && styles.darkTertiaryText]}>
-                Billing status: {isRevenueCatReady ? 'RevenueCat configured' : 'RevenueCat not configured'} ·
+                Billing: {isRevenueCatReady ? 'RevenueCat configured' : 'RevenueCat not configured'} ·
                 {' '}Tier: {subscription?.tier ?? 'none'}
+                {isBetaTierTestingEnabled && !isRevenueCatReady
+                  ? ' · Use test controls below to switch Free ↔ Premium'
+                  : ''}
               </Text>
+            )}
+            {isBetaTierTestingEnabled && (
+              <View style={[styles.section, isDark && styles.darkSection, styles.restoreSection]}>
+                <Text style={[styles.betaTierSectionTitle, isDark && styles.darkText]}>
+                  TestFlight / beta tier
+                </Text>
+                <Text style={[styles.betaTierSectionHint, isDark && styles.darkTertiaryText]}>
+                  Local only — does not charge App Store. Remove EXPO_PUBLIC_ENABLE_TEST_TIER_SWITCH before App Store release.
+                </Text>
+                <View style={styles.betaTierButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.betaTierButton,
+                      subscription?.tier === 'free' && styles.betaTierButtonActive,
+                      isDark && styles.darkSecondaryButton,
+                    ]}
+                    onPress={async () => {
+                      try {
+                        await setTestTier('free');
+                        Alert.alert('Test tier', 'Set to Free on this device.');
+                      } catch (e) {
+                        Alert.alert('Error', e instanceof Error ? e.message : 'Could not switch tier.');
+                      }
+                    }}
+                  >
+                    <Text style={[styles.betaTierButtonText, isDark && styles.darkText]}>Free</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.betaTierButton,
+                      subscription?.tier === 'premium' && styles.betaTierButtonActive,
+                      isDark && styles.darkSecondaryButton,
+                    ]}
+                    onPress={async () => {
+                      try {
+                        await setTestTier('premium');
+                        Alert.alert('Test tier', 'Set to Premium on this device.');
+                      } catch (e) {
+                        Alert.alert('Error', e instanceof Error ? e.message : 'Could not switch tier.');
+                      }
+                    }}
+                  >
+                    <Text style={[styles.betaTierButtonText, isDark && styles.darkText]}>Premium</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             )}
             {isRevenueCatReady && (
               <View style={[styles.section, isDark && styles.darkSection, styles.restoreSection]}>
@@ -546,26 +571,19 @@ export default function SettingsModal({
           console.log('❌ Closing upgrade modal');
           setShowUpgradeModal(false);
         }}
-        onSelectPlan={async (tier) => {
+        onSelectPlan={async () => {
           try {
-            console.log(`💳 User selected ${tier} tier`);
-            const completed = await subscribeToTier(tier);
+            console.log('💳 User selected Premium');
+            const completed = await subscribeToPremium();
             if (!completed) {
               Alert.alert(
                 'Purchase not completed',
-                tier === 'premium'
-                  ? 'Premium was not activated. If you already subscribe, try Restore Purchases. Otherwise complete the App Store purchase flow.'
-                  : 'The Entry plan was not activated. Please try again or use Restore Purchases.'
+                'Premium was not activated. If you already subscribe, try Restore Purchases. Otherwise complete the App Store purchase flow.'
               );
               return;
             }
             setShowUpgradeModal(false);
-            Alert.alert(
-              'Plan updated',
-              tier === 'premium'
-                ? 'You now have Premium on this device.'
-                : 'You are now on the Entry plan.'
-            );
+            Alert.alert('Plan updated', 'You now have Premium on this device.');
           } catch (error) {
             console.error('❌ Upgrade failed:', error);
             Alert.alert(
@@ -728,6 +746,43 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 8,
     marginHorizontal: 4,
+  },
+  betaTierSectionTitle: {
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+    color: '#111827',
+    marginBottom: 4,
+    paddingHorizontal: 4,
+  },
+  betaTierSectionHint: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#6B7280',
+    lineHeight: 17,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  betaTierButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  betaTierButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: FL.border,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  betaTierButtonActive: {
+    borderColor: FL.amber,
+    backgroundColor: FL.amberTint,
+  },
+  betaTierButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: FL.textDark,
   },
   // About Modal Styles
   aboutOverlay: {

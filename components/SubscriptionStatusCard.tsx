@@ -9,7 +9,6 @@ interface SubscriptionStatusCardProps {
   features: SubscriptionFeatures;
   onUpgradePress: () => void;
   onManageSubscription?: () => void;
-  onDowngradeToEntry?: () => void;
   showManageSubscription?: boolean;
   isDark?: boolean;
 }
@@ -19,13 +18,10 @@ export default function SubscriptionStatusCard({
   features,
   onUpgradePress,
   onManageSubscription,
-  onDowngradeToEntry,
   showManageSubscription = false,
-  isDark = false
+  isDark = false,
 }: SubscriptionStatusCardProps) {
-  const tier = subscription?.tier ?? 'free';
   const isPremium = subscription?.tier === 'premium';
-  const isEntry = subscription?.tier === 'entry';
   const isTrial = subscription?.status === 'trial';
 
   return (
@@ -34,7 +30,7 @@ export default function SubscriptionStatusCard({
         <View style={styles.tierBadge}>
           {isPremium && <Crown size={16} color={FL.amber} />}
           <Text style={[styles.tierName, isDark && styles.darkText]}>
-            {isPremium ? 'Premium Utility' : isEntry ? 'Entry Utility' : 'No Subscription'}
+            {isPremium ? 'Premium' : 'Free'}
           </Text>
         </View>
         {isTrial && (
@@ -48,46 +44,25 @@ export default function SubscriptionStatusCard({
         <FeatureRow text="Online Book Search (Google Books API)" enabled={features.canSearchBooks} isDark={isDark} />
         <FeatureRow text="Movie Search (OMDb)" enabled={features.canSearchMovies} isDark={isDark} />
         <FeatureRow text="Enhanced Multi-Source Search" enabled={features.canUseEnhancedSearch} isDark={isDark} />
+        <FeatureRow text="AI Recommendations" enabled={features.canGetRecommendations} isDark={isDark} />
         <FeatureRow text="LLM Search & AI Item Creation" enabled={features.canUseLLM} isDark={isDark} />
-        <FeatureRow text="Advanced AI Recommendations" enabled={features.canGetRecommendations} isDark={isDark} />
-        <FeatureRow text="Priority Support" enabled={features.hasPrioritySupport} isDark={isDark} />
         <FeatureRow text="Unlimited Items" enabled={features.hasUnlimitedItems} isDark={isDark} />
+        <FeatureRow text="Priority Support" enabled={features.hasPrioritySupport} isDark={isDark} />
       </View>
 
-      {tier === 'free' && (
+      {!isPremium && (
         <View style={[styles.localDbInfo, isDark && styles.darkLocalDbInfo]}>
           <Text style={[styles.localDbText, isDark && styles.darkLocalDbText]}>
-            Your lists stay on this device. Subscribe to Entry or Premium for online search and more.
+            Your lists stay on this device. Subscribe to Premium for online search, AI recommendations, and more.
           </Text>
         </View>
       )}
 
-      {tier === 'free' && (
+      {!isPremium && (
         <TouchableOpacity
           style={styles.upgradeButton}
           onPress={() => {
-            console.log('🚀 View plans pressed in SubscriptionStatusCard');
-            onUpgradePress();
-          }}
-        >
-          <Text style={styles.upgradeButtonText}>View Entry & Premium Plans</Text>
-          <ChevronRight size={16} color={FL.white} />
-        </TouchableOpacity>
-      )}
-
-      {isEntry && (
-        <View style={[styles.localDbInfo, isDark && styles.darkLocalDbInfo]}>
-          <Text style={[styles.localDbText, isDark && styles.darkLocalDbText]}>
-            Entry includes local tracking and API search. Upgrade to Premium for LLM features.
-          </Text>
-        </View>
-      )}
-
-      {isEntry && (
-        <TouchableOpacity
-          style={styles.upgradeButton}
-          onPress={() => {
-            console.log('🚀 Upgrade button pressed in SubscriptionStatusCard');
+            console.log('🚀 Upgrade pressed in SubscriptionStatusCard');
             onUpgradePress();
           }}
         >
@@ -96,7 +71,7 @@ export default function SubscriptionStatusCard({
         </TouchableOpacity>
       )}
 
-      {(isPremium || isEntry) && (
+      {isPremium && (
         <View style={styles.planActions}>
           {showManageSubscription && onManageSubscription ? (
             <TouchableOpacity
@@ -108,22 +83,12 @@ export default function SubscriptionStatusCard({
               </Text>
             </TouchableOpacity>
           ) : null}
-          {isPremium && onDowngradeToEntry ? (
-            <TouchableOpacity
-              style={[styles.secondaryButton, isDark && styles.darkSecondaryButton]}
-              onPress={onDowngradeToEntry}
-            >
-              <Text style={[styles.secondaryButtonText, isDark && styles.darkText]}>
-                Switch to Entry Plan
-              </Text>
-            </TouchableOpacity>
-          ) : null}
         </View>
       )}
 
-      {subscription?.expiresAt && (
+      {subscription?.expiresAt && isPremium && (
         <Text style={[styles.expirationText, isDark && styles.darkTertiaryText]}>
-          {isPremium ? 'Renews' : 'Expires'} on {new Date(subscription.expiresAt).toLocaleDateString()}
+          Renews on {new Date(subscription.expiresAt).toLocaleDateString()}
         </Text>
       )}
     </View>

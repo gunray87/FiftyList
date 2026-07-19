@@ -10,6 +10,7 @@ import {
 } from '@/utils/secureStore';
 import { clearPremiumRefineContext } from '@/utils/premiumRefineContext';
 import { openSubscriptionManagement } from '@/utils/subscriptionManagement';
+import { isBetaTierTestingEnabled } from '@/utils/betaTierTesting';
 import {
   isRevenueCatConfigured,
   purchaseRevenueCatTier,
@@ -22,19 +23,19 @@ interface SubscriptionContextType {
   features: SubscriptionFeatures;
   isLoading: boolean;
   isRevenueCatReady: boolean;
-  subscribeToTier: (tier: 'entry' | 'premium') => Promise<boolean>;
-  upgradeToPremium: () => Promise<boolean>;
+  subscribeToPremium: () => Promise<boolean>;
   startFreeTrial: () => Promise<void>;
-  downgradeToEntry: () => Promise<void>;
   clearLocalTierOverride: () => Promise<void>;
   openManageSubscriptions: () => Promise<boolean>;
   refreshSubscription: () => Promise<void>;
   restorePurchases: () => Promise<void>;
+  /** Local-only tier for simulator / TestFlight when billing is unavailable. */
+  isBetaTierTestingEnabled: boolean;
+  setTestTier: (tier: 'free' | 'premium') => Promise<void>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | null>(null);
 const SUBSCRIPTION_STORAGE_KEY = 'user_subscription';
-/** When set, local tier wins over RevenueCat sync until purchase/restore. */
 const SUBSCRIPTION_LOCAL_OVERRIDE_KEY = 'user_subscription_local_override';
 
 function buildFreeSubscription(): UserSubscription {
@@ -46,13 +47,24 @@ function buildFreeSubscription(): UserSubscription {
   };
 }
 
-function buildEntrySubscription(): UserSubscription {
+function buildPremiumSubscription(status: UserSubscription['status'] = 'active'): UserSubscription {
   return {
-    tier: 'entry',
-    status: 'active',
+    tier: 'premium',
+    status,
     expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    autoRenew: true,
+    autoRenew: status === 'active',
   };
+}
+
+async function applyLocalTestTier(tier: 'free' | 'premium'): Promise<void> {
+  if (tier === 'free') {
+    await setSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY, 'free');
+    await setSecureJson(SUBSCRIPTION_STORAGE_KEY, buildFreeSubscription());
+    await clearPremiumRefineContext();
+    return;
+  }
+  await setSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY, 'premium');
+  await setSecureJson(SUBSCRIPTION_STORAGE_KEY, buildPremiumSubscription());
 }
 
 export const useSubscription = () => {
@@ -70,7 +82,6 @@ export const useSubscriptionProvider = () => {
 
   const features = getSubscriptionFeatures(subscription);
 
-  // Load subscription from storage
   useEffect(() => {
     loadSubscription();
   }, []);
@@ -84,17 +95,17 @@ export const useSubscriptionProvider = () => {
       await migrateKeyFromAsyncStorageToSecureStore(SUBSCRIPTION_LOCAL_OVERRIDE_KEY);
 
       const localOverride = await getSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY);
-      if (localOverride === 'entry') {
-        const entry = buildEntrySubscription();
-        setSubscription(entry);
-        await setSecureJson(SUBSCRIPTION_STORAGE_KEY, entry);
-        setIsLoading(false);
-        return;
-      }
       if (localOverride === 'free') {
         const free = buildFreeSubscription();
         setSubscription(free);
         await setSecureJson(SUBSCRIPTION_STORAGE_KEY, free);
+        setIsLoading(false);
+        return;
+      }
+      if (localOverride === 'premium' && isBetaTierTestingEnabled()) {
+        const premium = buildPremiumSubscription();
+        setSubscription(premium);
+        await setSecureJson(SUBSCRIPTION_STORAGE_KEY, premium);
         setIsLoading(false);
         return;
       }
@@ -103,6 +114,7 @@ export const useSubscriptionProvider = () => {
       if (stored) {
         const normalized: UserSubscription = {
           ...stored,
+          tier: stored.tier === 'premium' ? 'premium' : 'free',
           expiresAt: new Date(stored.expiresAt),
           trialEndsAt: stored.trialEndsAt ? new Date(stored.trialEndsAt) : undefined,
         };
@@ -119,7 +131,6 @@ export const useSubscriptionProvider = () => {
       }
     } catch (error) {
       console.error('Error loading subscription:', error);
-      // Default to free tier on error
       setSubscription(buildFreeSubscription());
     } finally {
       setIsLoading(false);
@@ -136,49 +147,37 @@ export const useSubscriptionProvider = () => {
     }
   };
 
-  const subscribeToTier = async (tier: 'entry' | 'premium'): Promise<boolean> => {
+  const subscribeToPremium = async (): Promise<boolean> => {
     try {
-      const localOverride = await getSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY);
-      // Local "Entry" testing override must not block a real Premium purchase.
-      if (localOverride === 'entry' && tier === 'premium') {
-        await clearLocalTierOverride();
-      }
+      await clearLocalTierOverride();
 
       if (isRevenueCatReady) {
         const synced = await syncSubscriptionFromRevenueCat();
-        if (synced?.tier === tier) {
-          await clearLocalTierOverride();
+        if (synced?.tier === 'premium') {
           await saveSubscription(synced);
-          console.log(`🎉 RevenueCat already active for ${tier}`);
+          console.log('🎉 RevenueCat already active for premium');
           return true;
         }
 
-        const purchased = await purchaseRevenueCatTier(tier);
-        if (purchased?.tier === tier) {
-          await clearLocalTierOverride();
+        const purchased = await purchaseRevenueCatTier('premium');
+        if (purchased?.tier === 'premium') {
           await saveSubscription(purchased);
-          console.log(`🎉 RevenueCat ${tier} purchase completed`);
+          console.log('🎉 RevenueCat premium purchase completed');
           return true;
         }
 
-        // User cancelled, or purchase did not grant the requested tier.
-        if (localOverride === 'entry' && tier === 'premium') {
-          await setSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY, 'entry');
-          await saveSubscription(buildEntrySubscription());
-        }
         return false;
       }
 
       if (__DEV__) {
         const simulatedSubscription: UserSubscription = {
-          tier,
+          tier: 'premium',
           status: 'active',
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           autoRenew: true,
         };
-        await clearLocalTierOverride();
         await saveSubscription(simulatedSubscription);
-        console.log(`🎉 User subscribed to ${tier} (simulated dev fallback)`);
+        console.log('🎉 User subscribed to premium (simulated dev fallback)');
         return true;
       }
 
@@ -186,27 +185,23 @@ export const useSubscriptionProvider = () => {
         'Subscription purchase unavailable: RevenueCat is not configured for this build.'
       );
     } catch (error) {
-      console.error('Error subscribing to tier:', error);
+      console.error('Error subscribing to premium:', error);
       throw error;
     }
   };
 
-  const upgradeToPremium = async () => subscribeToTier('premium');
-
   const startFreeTrial = async () => {
-    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
-    
+    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
     const trialSubscription: UserSubscription = {
-      tier: 'entry',
+      tier: 'premium',
       status: 'trial',
       expiresAt: trialEndsAt,
       autoRenew: false,
       trialEndsAt,
     };
-    
+
     await saveSubscription(trialSubscription);
-    
-    // Track trial start
     console.log('🆓 User started free trial!');
   };
 
@@ -214,19 +209,13 @@ export const useSubscriptionProvider = () => {
     await deleteSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY);
   };
 
-  const downgradeToFree = async () => {
-    await setSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY, 'free');
-    await saveSubscription(buildFreeSubscription());
-    console.log('📉 Subscription set to free (local)');
-  };
-
-  const downgradeToEntry = async () => {
-    const entry = buildEntrySubscription();
-    setSubscription(entry);
-    await setSecureItem(SUBSCRIPTION_LOCAL_OVERRIDE_KEY, 'entry');
-    await setSecureJson(SUBSCRIPTION_STORAGE_KEY, entry);
-    await clearPremiumRefineContext();
-    console.log('📉 Subscription set to entry (local override active, premium refine cleared)');
+  const setTestTier = async (tier: 'free' | 'premium') => {
+    if (!isBetaTierTestingEnabled()) {
+      throw new Error('Test tier switching is not enabled in this build.');
+    }
+    await applyLocalTestTier(tier);
+    setSubscription(tier === 'free' ? buildFreeSubscription() : buildPremiumSubscription());
+    console.log(`🧪 Test tier set to ${tier} (local only)`);
   };
 
   const openManageSubscriptions = async () => {
@@ -239,8 +228,8 @@ export const useSubscriptionProvider = () => {
       await saveSubscription(buildFreeSubscription());
       return;
     }
-    if (localOverride === 'entry') {
-      await saveSubscription(buildEntrySubscription());
+    if (localOverride === 'premium' && isBetaTierTestingEnabled()) {
+      await saveSubscription(buildPremiumSubscription());
       return;
     }
 
@@ -277,14 +266,14 @@ export const useSubscriptionProvider = () => {
     features,
     isLoading,
     isRevenueCatReady,
-    subscribeToTier,
-    upgradeToPremium,
+    subscribeToPremium,
     startFreeTrial,
-    downgradeToEntry,
     clearLocalTierOverride,
     openManageSubscriptions,
     refreshSubscription,
     restorePurchases,
+    isBetaTierTestingEnabled: isBetaTierTestingEnabled(),
+    setTestTier,
   };
 };
 

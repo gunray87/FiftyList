@@ -22,8 +22,6 @@ export const DataQualityGate: React.FC<DataQualityGateProps> = ({
         return features.canSearchMovies;
       case 'enhanced_search':
         return features.canUseEnhancedSearch;
-      case 'price_tracking':
-        return features.canTrackPrices;
       case 'recommendations':
         return features.canGetRecommendations;
       default:

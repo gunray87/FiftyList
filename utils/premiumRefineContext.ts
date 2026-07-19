@@ -6,7 +6,7 @@ export const PREMIUM_SUGGESTION_CONTEXT_MOVIES_KEY = 'premium_suggestion_llm_con
 export const PREMIUM_SUGGESTION_CONTEXT_LEGACY_KEY = 'premium_suggestion_llm_context';
 export const TASTE_PROFILE_CACHE_KEY = 'fiftylist_taste_profile_cache_v7';
 
-/** Removes stored Premium refine text and taste snapshot (e.g. downgrade to Entry). */
+/** Removes stored Premium refine text and taste snapshot (e.g. downgrade to free). */
 export async function clearPremiumRefineContext(): Promise<void> {
   await Promise.all([
     AsyncStorage.removeItem(PREMIUM_SUGGESTION_CONTEXT_BOOKS_KEY),

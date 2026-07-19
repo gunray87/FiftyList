@@ -7,15 +7,15 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { X, Crown, Check, Zap, TrendingUp } from 'lucide-react-native';
+import { X, Crown, Check, Search, Sparkles, SlidersHorizontal, Layers, Radar, HeadphonesIcon } from 'lucide-react-native';
 import { FL } from '@/constants/fiftyListTheme';
 
 interface UpgradeModalProps {
   visible: boolean;
   onClose: () => void;
-  onSelectPlan: (tier: 'entry' | 'premium') => void;
+  onSelectPlan: (tier: 'premium') => void;
   isDark?: boolean;
-  triggerFeature?: string; // What feature triggered the paywall
+  triggerFeature?: string;
 }
 
 export default function UpgradeModal({
@@ -25,22 +25,16 @@ export default function UpgradeModal({
   isDark = false,
   triggerFeature,
 }: UpgradeModalProps) {
-  const handleSelectPlan = (tier: 'entry' | 'premium') => {
-    onSelectPlan(tier);
-  };
-
   const features = [
-    { icon: Zap, text: 'Online Book Search (Google Books API)' },
-    { icon: Zap, text: 'Movie Search (OMDb)' },
-    { icon: TrendingUp, text: 'Enhanced Multi-Source Search' },
-    { icon: TrendingUp, text: 'Price Tracking & Alerts' },
-    { icon: TrendingUp, text: 'Advanced AI Recommendations' },
-    { icon: Check, text: 'Unlimited Items' },
-    { icon: Check, text: 'Priority Support' },
+    { icon: Search, text: 'Live search via Google Books & OMDb' },
+    { icon: Sparkles, text: 'AI-powered book & movie recommendations' },
+    { icon: SlidersHorizontal, text: 'Genre & mood filtering' },
+    { icon: Layers, text: 'Semantic similarity matching ("more like this")' },
+    { icon: Radar, text: 'Enhanced multi-source search' },
+    { icon: HeadphonesIcon, text: 'Priority support' },
   ];
 
   return (
-    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -48,12 +42,11 @@ export default function UpgradeModal({
       onRequestClose={onClose}
     >
       <View style={[styles.container, isDark && styles.darkContainer]}>
-        {/* Header */}
         <View style={[styles.header, isDark && styles.darkHeader]}>
           <View style={styles.headerLeft}>
             <Crown size={24} color={FL.amber} />
             <Text style={[styles.title, isDark && styles.darkText]}>
-              Choose Your Utility Plan
+              Upgrade to Premium
             </Text>
           </View>
           <TouchableOpacity onPress={onClose} style={[styles.closeButtonGhost, isDark && styles.darkCloseButtonGhost]}>
@@ -62,29 +55,26 @@ export default function UpgradeModal({
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Trigger Message */}
           {triggerFeature && (
             <View style={styles.triggerBanner}>
-              <Text style={[styles.triggerText, isDark && styles.darkText]}>
-                🔒 {triggerFeature} requires a paid tier
+              <Text style={styles.triggerText}>
+                🔒 {triggerFeature} requires Premium
               </Text>
             </View>
           )}
 
-          {/* Hero Message */}
           <View style={styles.hero}>
             <Text style={[styles.heroTitle, isDark && styles.darkText]}>
-              Unlock Unlimited Search & Advanced Features
+              Upgrade to Premium
             </Text>
             <Text style={[styles.heroSubtitle, isDark && styles.darkSecondaryText]}>
-              Search millions of books and movies with rich metadata, get personalized recommendations, and more.
+              Search any book or movie. Get personalized recommendations. Your data stays private, always.
             </Text>
           </View>
 
-          {/* Features List */}
           <View style={[styles.featuresSection, isDark && styles.darkSection]}>
             <Text style={[styles.sectionTitle, isDark && styles.darkText]}>
-              Premium Features
+              What you get
             </Text>
             {features.map((feature, index) => (
               <View key={index} style={styles.featureRow}>
@@ -98,45 +88,40 @@ export default function UpgradeModal({
             ))}
           </View>
 
-          {/* Pricing Cards */}
           <View style={styles.pricingSection}>
-            <Text style={[styles.sectionTitle, isDark && styles.darkText]}>
-              Choose Your Monthly Tier
-            </Text>
-
-            {/* Premium Tier */}
+            {/* Annual — primary */}
             <TouchableOpacity
               style={[styles.pricingCard, styles.pricingCardRecommended, isDark && styles.darkPricingCard]}
-              onPress={() => handleSelectPlan('premium')}
+              onPress={() => onSelectPlan('premium')}
             >
               <View style={styles.recommendedBadge}>
-                <Text style={styles.recommendedText}>LLM INCLUDED</Text>
+                <Text style={styles.recommendedText}>SAVE 44%</Text>
               </View>
               <View style={styles.pricingHeader}>
                 <Text style={[styles.pricingTitle, isDark && styles.darkText]}>
-                  Premium Utility
+                  Annual
                 </Text>
                 <View style={styles.pricingPrice}>
-                  <Text style={[styles.price, isDark && styles.darkText]}>$9.99</Text>
-                  <Text style={[styles.pricingPeriod, isDark && styles.darkSecondaryText]}>/month</Text>
+                  <Text style={[styles.price, isDark && styles.darkText]}>$19.99</Text>
+                  <Text style={[styles.pricingPeriod, isDark && styles.darkSecondaryText]}>/year</Text>
                 </View>
               </View>
-              <Text style={[styles.pricingSavings, isDark && styles.darkSecondaryText]}>
-                Includes LLM search and AI-assisted item creation
+              <Text style={styles.pricingSavings}>
+                Less than $2/month
               </Text>
               <Text style={[styles.pricingEquivalent, isDark && styles.darkTertiaryText]}>
-                Best for power users
+                Best value
               </Text>
             </TouchableOpacity>
 
-            {/* Entry Tier */}
+            {/* Monthly — secondary */}
             <TouchableOpacity
               style={[styles.pricingCard, isDark && styles.darkPricingCard]}
-              onPress={() => handleSelectPlan('entry')}
+              onPress={() => onSelectPlan('premium')}
             >
               <View style={styles.pricingHeader}>
                 <Text style={[styles.pricingTitle, isDark && styles.darkText]}>
-                  Entry Utility
+                  Monthly
                 </Text>
                 <View style={styles.pricingPrice}>
                   <Text style={[styles.price, isDark && styles.darkText]}>$2.99</Text>
@@ -144,21 +129,29 @@ export default function UpgradeModal({
                 </View>
               </View>
               <Text style={[styles.pricingDescription, isDark && styles.darkSecondaryText]}>
-                Core utility features without LLM
+                Full Premium access, billed monthly
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Local-first note */}
-          <View style={[styles.planNote, isDark && styles.darkPlanNote]}>
-            <Text style={[styles.planNoteText, isDark && styles.darkSecondaryText]}>
-              💡 Entry and Premium keep your lists on-device. Premium adds AI-powered features.
+          <TouchableOpacity
+            style={styles.ctaButton}
+            onPress={() => onSelectPlan('premium')}
+          >
+            <Text style={styles.ctaButtonText}>Start 7-Day Free Trial</Text>
+          </TouchableOpacity>
+          <Text style={[styles.finePrint, isDark && styles.darkTertiaryText]}>
+            No credit card required. Cancel anytime.
+          </Text>
+
+          <View style={[styles.privacyNote, isDark && styles.darkPlanNote]}>
+            <Text style={[styles.privacyNoteText, isDark && styles.darkSecondaryText]}>
+              🔒 Your library never leaves your device. FiftyList never sees your data.
             </Text>
           </View>
         </ScrollView>
       </View>
     </Modal>
-  </>
   );
 }
 
@@ -268,6 +261,7 @@ const styles = StyleSheet.create({
   },
   darkSection: {
     backgroundColor: '#1F2937',
+    borderColor: '#374151',
   },
   sectionTitle: {
     fontSize: 18,
@@ -296,7 +290,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pricingSection: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   pricingCard: {
     backgroundColor: FL.card,
@@ -392,7 +386,32 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#6B7280',
   },
-  planNote: {
+  ctaButton: {
+    backgroundColor: FL.amber,
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginBottom: 8,
+    shadowColor: FL.amber,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  ctaButtonText: {
+    fontSize: 17,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  finePrint: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  privacyNote: {
     backgroundColor: FL.card,
     padding: 18,
     borderRadius: 14,
@@ -400,17 +419,19 @@ const styles = StyleSheet.create({
     borderLeftColor: FL.amber,
     borderWidth: 0.5,
     borderColor: FL.border,
+    marginBottom: 32,
   },
   darkPlanNote: {
     backgroundColor: '#1F2937',
     borderColor: '#374151',
     borderLeftColor: FL.amber,
   },
-  planNoteText: {
+  privacyNoteText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: FL.textDark,
     lineHeight: 20,
+    textAlign: 'center',
     letterSpacing: 0.1,
   },
 });

@@ -18,9 +18,8 @@
       "env": {
         "EXPO_PUBLIC_ENABLE_LLM_ASSIST": "true",
         "EXPO_PUBLIC_LLM_PROXY_BASE_URL": "https://fiftylist-llm-proxy.cagunn.workers.dev",
-        "EXPO_PUBLIC_REVENUECAT_ENTRY_ENTITLEMENT_ID": "entry",
+        "EXPO_PUBLIC_ENABLE_TEST_TIER_SWITCH": "true",
         "EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT_ID": "premium",
-        "EXPO_PUBLIC_REVENUECAT_ENTRY_PACKAGE_ID": "entry_monthly",
         "EXPO_PUBLIC_REVENUECAT_PREMIUM_PACKAGE_ID": "premium_monthly"
       },
       "ios": {

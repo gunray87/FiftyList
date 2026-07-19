@@ -590,7 +590,7 @@ export default function SuggestionsScreen() {
     void saveMovieRefineContext();
   }, [llmMovieRefineContext, llmRefineEnabled]);
 
-  /** Entry/free: wipe refine UI, storage, and mood state so Premium text cannot keep steering picks. */
+  /** Free tier: wipe refine UI, storage, and mood state so Premium text cannot keep steering picks. */
   useEffect(() => {
     if (llmRefineEnabled) return;
 
@@ -4922,8 +4922,7 @@ export default function SuggestionsScreen() {
               </Text>
               {!llmRefineEnabled && (
                 <Text style={styles.llmContextPremiumHint}>
-                  Premium unlocks AI refine. Upgrade in Settings, or switch back to Premium if you are
-                  on Entry.
+                  Premium unlocks AI refine. Upgrade in Settings to enable it.
                 </Text>
               )}
               {!ENABLE_LLM_ASSIST && __DEV__ && (
@@ -4962,8 +4961,7 @@ export default function SuggestionsScreen() {
               </Text>
               {!llmRefineEnabled && (
                 <Text style={styles.llmContextPremiumHint}>
-                  Premium unlocks AI refine. Upgrade in Settings, or switch back to Premium if you are
-                  on Entry.
+                  Premium unlocks AI refine. Upgrade in Settings to enable it.
                 </Text>
               )}
               <TextInput

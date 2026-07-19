@@ -2,13 +2,9 @@ import { Platform } from 'react-native';
 import Purchases, { CustomerInfo, LOG_LEVEL, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { UserSubscription } from '@/types/subscription';
 
-type SubscriptionTierId = 'entry' | 'premium';
-
 const IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
 const ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY;
-const ENTRY_ENTITLEMENT_ID = process.env.EXPO_PUBLIC_REVENUECAT_ENTRY_ENTITLEMENT_ID || 'entry';
 const PREMIUM_ENTITLEMENT_ID = process.env.EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'premium';
-const ENTRY_PACKAGE_ID = process.env.EXPO_PUBLIC_REVENUECAT_ENTRY_PACKAGE_ID;
 const PREMIUM_PACKAGE_ID = process.env.EXPO_PUBLIC_REVENUECAT_PREMIUM_PACKAGE_ID;
 
 let initialized = false;
@@ -27,16 +23,14 @@ function hasValidPublicSdkKey(): boolean {
   return false;
 }
 
-function selectPackage(offering: PurchasesOffering, tier: SubscriptionTierId): PurchasesPackage | null {
-  const configuredPackageId = tier === 'premium' ? PREMIUM_PACKAGE_ID : ENTRY_PACKAGE_ID;
-  if (configuredPackageId) {
-    const exact = offering.availablePackages.find((pkg) => pkg.identifier === configuredPackageId);
+function selectPackage(offering: PurchasesOffering): PurchasesPackage | null {
+  if (PREMIUM_PACKAGE_ID) {
+    const exact = offering.availablePackages.find((pkg) => pkg.identifier === PREMIUM_PACKAGE_ID);
     if (exact) return exact;
   }
 
-  const tierKeyword = tier === 'premium' ? 'premium' : 'entry';
   return (
-    offering.availablePackages.find((pkg) => pkg.identifier.toLowerCase().includes(tierKeyword)) ??
+    offering.availablePackages.find((pkg) => pkg.identifier.toLowerCase().includes('premium')) ??
     offering.availablePackages.find((pkg) => pkg.identifier.toLowerCase().includes('month')) ??
     null
   );
@@ -71,10 +65,8 @@ export async function initializeRevenueCat(): Promise<boolean> {
 
 export function customerInfoToSubscription(customerInfo: CustomerInfo): UserSubscription {
   const premiumEntitlement = getEntitlement(customerInfo, PREMIUM_ENTITLEMENT_ID);
-  const entryEntitlement = getEntitlement(customerInfo, ENTRY_ENTITLEMENT_ID);
-  const entitlement = premiumEntitlement ?? entryEntitlement;
 
-  if (!entitlement) {
+  if (!premiumEntitlement) {
     return {
       tier: 'free',
       status: 'active',
@@ -83,15 +75,15 @@ export function customerInfoToSubscription(customerInfo: CustomerInfo): UserSubs
     };
   }
 
-  const expirationDate = entitlement.expirationDate
-    ? new Date(entitlement.expirationDate)
+  const expirationDate = premiumEntitlement.expirationDate
+    ? new Date(premiumEntitlement.expirationDate)
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   return {
-    tier: premiumEntitlement ? 'premium' : 'entry',
+    tier: 'premium',
     status: 'active',
     expiresAt: expirationDate,
-    autoRenew: entitlement.willRenew ?? true,
+    autoRenew: premiumEntitlement.willRenew ?? true,
   };
 }
 
@@ -103,7 +95,7 @@ export async function syncSubscriptionFromRevenueCat(): Promise<UserSubscription
   return customerInfoToSubscription(customerInfo);
 }
 
-export async function purchaseRevenueCatTier(tier: SubscriptionTierId): Promise<UserSubscription | null> {
+export async function purchaseRevenueCatTier(_tier: 'premium'): Promise<UserSubscription | null> {
   const ready = await initializeRevenueCat();
   if (!ready) return null;
 
@@ -111,9 +103,9 @@ export async function purchaseRevenueCatTier(tier: SubscriptionTierId): Promise<
   const currentOffering = offerings.current;
   if (!currentOffering) throw new Error('No RevenueCat offering is configured.');
 
-  const targetPackage = selectPackage(currentOffering, tier);
+  const targetPackage = selectPackage(currentOffering);
   if (!targetPackage) {
-    throw new Error(`No ${tier} package found in current RevenueCat offering.`);
+    throw new Error('No premium package found in current RevenueCat offering.');
   }
 
   try {

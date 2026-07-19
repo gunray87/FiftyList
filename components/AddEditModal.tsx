@@ -107,7 +107,7 @@ export default function AddEditModal({
   suggestionData,
 }: AddEditModalProps) {
   const { settings, isLoading: settingsLoading } = useAppSettings();
-  const { features, subscription, subscribeToTier } = useSubscription();
+  const { features, subscription, subscribeToPremium } = useSubscription();
   const llmProxyBaseUrl = getLlmProxyBaseUrl() ?? '';
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -407,9 +407,7 @@ export default function AddEditModal({
     if (!features.canUseLLM && !(__DEV__ && llmAssistConfigured)) {
       Alert.alert(
         'Premium feature',
-        subscription?.tier === 'entry'
-          ? 'AI item drafting is included with Premium, not Entry. Upgrade in Settings to enable it.'
-          : 'AI item drafting requires an active Premium subscription. Upgrade in Settings to enable it.',
+        'AI item drafting requires an active Premium subscription. Upgrade in Settings to enable it.',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'View plans', onPress: () => setShowUpgradeModal(true) },
@@ -1441,10 +1439,10 @@ export default function AddEditModal({
     <UpgradeModal
       visible={showUpgradeModal}
       onClose={() => setShowUpgradeModal(false)}
-      onSelectPlan={async (tier) => {
+      onSelectPlan={async () => {
         try {
-          console.log(`💳 User selected ${tier} tier from AddEditModal`);
-          const completed = await subscribeToTier(tier);
+          console.log('💳 User selected Premium from AddEditModal');
+          const completed = await subscribeToPremium();
           if (!completed) {
             Alert.alert(
               'Purchase not completed',
